@@ -45,14 +45,14 @@ function App() {
   const animationRef = useRef(null)
 
   useEffect(() => {
-    // ★マイクを起動時に一度だけ取得
-navigator.mediaDevices.getUserMedia({ audio: true })
-    .then((stream) => {
-      localStreamRef.current = stream
-    })
-    .catch((err) => {
-      setError('マイク取得失敗: ' + err.message)
-    })
+    // マイクを起動時に一度だけ取得
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then((stream) => {
+        localStreamRef.current = stream
+      })
+      .catch((err) => {
+        setError('マイク取得失敗: ' + err.message)
+      })
 
     const socket = io(SIGNALING_SERVER_URL)
     socketRef.current = socket
@@ -104,7 +104,6 @@ navigator.mediaDevices.getUserMedia({ audio: true })
   }, [])
 
   const setupPeerConnection = async (targetId) => {
-    // ★getUserMedia はここでは呼ばない（起動時に取得済み）
     const pc = new RTCPeerConnection(ICE_SERVERS)
     peerConnectionRef.current = pc
 
@@ -133,11 +132,18 @@ navigator.mediaDevices.getUserMedia({ audio: true })
       setConnectionStatus('通話中')
     }
 
+    // 詳細ログ付きの接続状態監視
     pc.onconnectionstatechange = () => {
+      console.log('接続状態変化:', pc.connectionState)
+      console.log('ICE状態:', pc.iceConnectionState)
       if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
         setConnectionStatus('接続が切断されました')
         setIsCallActive(false)
       }
+    }
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('ICE接続状態:', pc.iceConnectionState)
     }
   }
 
@@ -205,7 +211,10 @@ navigator.mediaDevices.getUserMedia({ audio: true })
       {error && <p style={{ color: 'red' }}>{error}</p>}
 
       {peerId && !isCallActive && (
-        <button onClick={callPeer} style={{ fontSize: '18px', padding: '10px 20px', marginTop: '20px' }}>
+        <button
+          onClick={callPeer}
+          style={{ fontSize: '18px', padding: '10px 20px', marginTop: '20px' }}
+        >
           相手に発信する
         </button>
       )}
@@ -217,13 +226,27 @@ navigator.mediaDevices.getUserMedia({ audio: true })
             <div>
               <p>自分のマイク</p>
               <div style={{ width: '150px', height: '20px', background: '#333', borderRadius: '6px' }}>
-                <div style={{ width: `${Math.min(localVolume * 300, 100)}%`, height: '100%', background: '#48bb78', borderRadius: '6px' }} />
+                <div
+                  style={{
+                    width: `${Math.min(localVolume * 300, 100)}%`,
+                    height: '100%',
+                    background: '#48bb78',
+                    borderRadius: '6px',
+                  }}
+                />
               </div>
             </div>
             <div>
               <p>相手から届いた音</p>
               <div style={{ width: '150px', height: '20px', background: '#333', borderRadius: '6px' }}>
-                <div style={{ width: `${Math.min(remoteVolume * 300, 100)}%`, height: '100%', background: '#4299e1', borderRadius: '6px' }} />
+                <div
+                  style={{
+                    width: `${Math.min(remoteVolume * 300, 100)}%`,
+                    height: '100%',
+                    background: '#4299e1',
+                    borderRadius: '6px',
+                  }}
+                />
               </div>
             </div>
           </div>
