@@ -27,6 +27,15 @@ function App() {
   const animationRef = useRef(null)
 
   useEffect(() => {
+    // ★マイクを起動時に一度だけ取得
+navigator.mediaDevices.getUserMedia({ audio: true })
+    .then((stream) => {
+      localStreamRef.current = stream
+    })
+    .catch((err) => {
+      setError('マイク取得失敗: ' + err.message)
+    })
+
     const socket = io(SIGNALING_SERVER_URL)
     socketRef.current = socket
 
@@ -70,27 +79,22 @@ function App() {
     return () => {
       socket.disconnect()
       if (animationRef.current) cancelAnimationFrame(animationRef.current)
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(t => t.stop())
+      }
     }
   }, [])
 
   const setupPeerConnection = async (targetId) => {
-    if (!localStreamRef.current) {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
-      })
-      localStreamRef.current = stream
-    }
-
+    // ★getUserMedia はここでは呼ばない（起動時に取得済み）
     const pc = new RTCPeerConnection(ICE_SERVERS)
     peerConnectionRef.current = pc
 
-    localStreamRef.current.getTracks().forEach((track) => {
-      pc.addTrack(track, localStreamRef.current)
-    })
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => {
+        pc.addTrack(track, localStreamRef.current)
+      })
+    }
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
