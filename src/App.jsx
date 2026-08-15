@@ -8,20 +8,16 @@ const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
     {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
+      urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
+      username: 'webrtc',
+      credential: 'webrtc',
     },
     {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turns:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
+      urls: 'turn:numb.viagenie.ca',
+      username: 'webrtc@live.com',
+      credential: 'muazkh',
     },
   ],
 }
@@ -45,23 +41,18 @@ function App() {
   const animationRef = useRef(null)
 
   useEffect(() => {
-    // ★マイク取得と Socket.io 接続を完全に分離
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then((stream) => {
         localStreamRef.current = stream
-        setError(null)
       })
       .catch((err) => {
         console.warn('マイク取得失敗:', err.message)
-        // マイクなし端末はエラー表示しない（PCで開く場合を考慮）
       })
 
-    // Renderスリープ防止ping（30秒ごと）
     const pingInterval = setInterval(() => {
       fetch('https://music-music.onrender.com/ping').catch(() => {})
     }, 30000)
 
-    // ★Socket.io接続はマイクと無関係に即実行
     const socket = io(SIGNALING_SERVER_URL)
     socketRef.current = socket
 

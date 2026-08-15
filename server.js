@@ -2,6 +2,9 @@ import { createServer } from 'http'
 import { Server } from 'socket.io'
 
 const httpServer = createServer((req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'GET')
+
   if (req.url === '/ping') {
     res.writeHead(200)
     res.end('pong')
