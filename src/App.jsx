@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { io } from 'socket.io-client'
 import './App.css'
 
@@ -11,34 +11,58 @@ const ICE_SERVERS = {
   ],
 }
 
+// 最大保持サンプル数
+const MAX_SAMPLES = 60
+
 function App() {
   const [connectionStatus, setConnectionStatus] = useState('未接続')
   const [myId, setMyId] = useState(null)
   const [peerId, setPeerId] = useState(null)
   const [isCallActive, setIsCallActive] = useState(false)
   const [error, setError] = useState(null)
-  const [localVolume, setLocalVolume] = useState(0)
-  const [remoteVolume, setRemoteVolume] = useState(0)
+  const [useNative, setUseNative] = useState(false)
+
+  // 遅延計測ステート
+  const [latencyHistory, setLatencyHistory] = useState([])   // RTT (ms) の配列
+  const [latestRtt, setLatestRtt] = useState(null)
+  const [minRtt, setMinRtt] = useState(null)
+  const [maxRtt, setMaxRtt] = useState(null)
+  const [avgRtt, setAvgRtt] = useState(null)
+  const [ipcLatency, setIpcLatency] = useState(null)         // naudiodon→IPC遅延
+  const [measuring, setMeasuring] = useState(false)
 
   const socketRef = useRef(null)
   const peerConnectionRef = useRef(null)
+  const dataChannelRef = useRef(null)
   const localStreamRef = useRef(null)
   const remoteAudioRef = useRef(null)
   const audioContextRef = useRef(null)
-  const localAnalyserRef = useRef(null)
-  const remoteAnalyserRef = useRef(null)
-  const animationRef = useRef(null)
+  const pingIntervalRef = useRef(null)
+  const pendingPingsRef = useRef({})  // pingId -> sentAt
+  const latencyHistoryRef = useRef([])
+
+  const isElectron = typeof window.electronAPI !== 'undefined'
+
+  // --- IPC遅延計測（naudiodonチャンク到達の時刻差） ---
+  const ipcTimestampsRef = useRef([])
+  const measureIpcLatency = useCallback((chunkReceivedAt) => {
+    const ts = ipcTimestampsRef.current
+    ts.push(chunkReceivedAt)
+    if (ts.length > 20) ts.shift()
+    if (ts.length >= 2) {
+      const intervals = []
+      for (let i = 1; i < ts.length; i++) {
+        intervals.push(ts[i] - ts[i - 1])
+      }
+      const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length
+      setIpcLatency(Math.round(avg))
+    }
+  }, [])
 
   useEffect(() => {
-    navigator.mediaDevices.getUserMedia({ audio: true })
-      .then((stream) => {
-        localStreamRef.current = stream
-      })
-      .catch((err) => {
-        console.warn('マイク取得失敗:', err.message)
-      })
+    initAudio()
 
-    const pingInterval = setInterval(() => {
+    const keepAlive = setInterval(() => {
       fetch('https://music-music.onrender.com/ping').catch(() => {})
     }, 30000)
 
@@ -89,17 +113,84 @@ function App() {
 
     return () => {
       socket.disconnect()
-      clearInterval(pingInterval)
-      if (animationRef.current) cancelAnimationFrame(animationRef.current)
+      clearInterval(keepAlive)
+      stopMeasuring()
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(t => t.stop())
+      }
+      if (isElectron && window.electronAPI) {
+        window.electronAPI.stopAudio()
       }
     }
   }, [])
 
+  const initAudio = async () => {
+    if (isElectron && window.electronAPI) {
+      try {
+        const audioContext = new AudioContext({ sampleRate: 44100 })
+        audioContextRef.current = audioContext
+
+        const streamDestination = audioContext.createMediaStreamDestination()
+        localStreamRef.current = streamDestination.stream
+
+        await window.electronAPI.startAudio()
+        setUseNative(true)
+
+        window.electronAPI.onAudioData((chunk) => {
+          const receivedAt = performance.now()
+          measureIpcLatency(receivedAt)
+
+          const int16 = new Int16Array(chunk.buffer || chunk)
+          const float32 = new Float32Array(int16.length)
+          for (let i = 0; i < int16.length; i++) {
+            float32[i] = int16[i] / 32768.0
+          }
+
+          const audioBuffer = audioContext.createBuffer(2, float32.length / 2, 44100)
+          const channelL = audioBuffer.getChannelData(0)
+          const channelR = audioBuffer.getChannelData(1)
+          for (let i = 0; i < float32.length / 2; i++) {
+            channelL[i] = float32[i * 2]
+            channelR[i] = float32[i * 2 + 1]
+          }
+
+          const source = audioContext.createBufferSource()
+          source.buffer = audioBuffer
+          source.connect(streamDestination)
+          source.start()
+        })
+
+      } catch (err) {
+        console.warn('naudiodon失敗、フォールバック:', err)
+        await initWebAudio()
+      }
+    } else {
+      await initWebAudio()
+    }
+  }
+
+  const initWebAudio = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      localStreamRef.current = stream
+    } catch (err) {
+      console.warn('マイク取得失敗:', err.message)
+    }
+  }
+
   const setupPeerConnection = async (targetId) => {
     const pc = new RTCPeerConnection(ICE_SERVERS)
     peerConnectionRef.current = pc
+
+    // DataChannel（計測用ping/pong）
+    const dc = pc.createDataChannel('latency', { ordered: false, maxRetransmits: 0 })
+    dataChannelRef.current = dc
+    setupDataChannel(dc)
+
+    // 相手側からのDataChannel受信
+    pc.ondatachannel = (event) => {
+      setupDataChannel(event.channel)
+    }
 
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
@@ -109,10 +200,7 @@ function App() {
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        socketRef.current.emit('ice-candidate', {
-          to: targetId,
-          candidate: event.candidate,
-        })
+        socketRef.current.emit('ice-candidate', { to: targetId, candidate: event.candidate })
       }
     }
 
@@ -120,22 +208,86 @@ function App() {
       const remoteStream = event.streams[0]
       if (remoteAudioRef.current) {
         remoteAudioRef.current.srcObject = remoteStream
+        remoteAudioRef.current.play().catch(e => console.warn('再生エラー:', e))
       }
-      setupAnalysers(remoteStream)
       setIsCallActive(true)
       setConnectionStatus('通話中')
     }
 
     pc.onconnectionstatechange = () => {
-      console.log('接続状態変化:', pc.connectionState)
       if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
         setConnectionStatus('接続が切断されました')
         setIsCallActive(false)
+        stopMeasuring()
+      }
+    }
+  }
+
+  const setupDataChannel = (dc) => {
+    dc.onmessage = (event) => {
+      const now = performance.now()
+      try {
+        const msg = JSON.parse(event.data)
+
+        if (msg.type === 'ping') {
+          // pongを返す
+          if (dc.readyState === 'open') {
+            dc.send(JSON.stringify({ type: 'pong', id: msg.id, sentAt: msg.sentAt }))
+          }
+        } else if (msg.type === 'pong') {
+          // RTT計算
+          const rtt = now - msg.sentAt
+          delete pendingPingsRef.current[msg.id]
+
+          const history = [...latencyHistoryRef.current, Math.round(rtt)]
+          if (history.length > MAX_SAMPLES) history.shift()
+          latencyHistoryRef.current = history
+
+          const min = Math.min(...history)
+          const max = Math.max(...history)
+          const avg = Math.round(history.reduce((a, b) => a + b, 0) / history.length)
+
+          setLatestRtt(Math.round(rtt))
+          setMinRtt(min)
+          setMaxRtt(max)
+          setAvgRtt(avg)
+          setLatencyHistory([...history])
+        }
+      } catch (e) {
+        // JSONパースエラーは無視
       }
     }
 
-    pc.oniceconnectionstatechange = () => {
-      console.log('ICE接続状態:', pc.iceConnectionState)
+    dc.onopen = () => {
+      console.log('DataChannel open')
+      dataChannelRef.current = dc
+    }
+  }
+
+  const startMeasuring = () => {
+    if (!dataChannelRef.current || dataChannelRef.current.readyState !== 'open') {
+      setError('DataChannelがまだ開いていません。通話接続後に計測してください。')
+      return
+    }
+    setMeasuring(true)
+    latencyHistoryRef.current = []
+    setLatencyHistory([])
+    let pingId = 0
+    pingIntervalRef.current = setInterval(() => {
+      if (dataChannelRef.current?.readyState === 'open') {
+        const id = pingId++
+        const sentAt = performance.now()
+        pendingPingsRef.current[id] = sentAt
+        dataChannelRef.current.send(JSON.stringify({ type: 'ping', id, sentAt }))
+      }
+    }, 200)
+  }
+
+  const stopMeasuring = () => {
+    setMeasuring(false)
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current)
+      pingIntervalRef.current = null
     }
   }
 
@@ -151,104 +303,159 @@ function App() {
     }
   }
 
-  const setupAnalysers = (remoteStream) => {
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)({
-      latencyHint: 'interactive',
-    })
-    audioContextRef.current = audioContext
+  // ミニバーグラフ（100ms = 100%）
+  const renderGraph = () => {
+    if (latencyHistory.length === 0) return null
+    const W = 320
+    const H = 80
+    const barW = Math.max(2, W / MAX_SAMPLES - 1)
 
-    const remoteSource = audioContext.createMediaStreamSource(remoteStream)
-    const remoteAnalyser = audioContext.createAnalyser()
-    remoteAnalyser.fftSize = 2048
-    remoteSource.connect(remoteAnalyser)
-    remoteAnalyserRef.current = remoteAnalyser
-
-    if (localStreamRef.current) {
-      const localSource = audioContext.createMediaStreamSource(localStreamRef.current)
-      const localAnalyser = audioContext.createAnalyser()
-      localAnalyser.fftSize = 2048
-      localSource.connect(localAnalyser)
-      localAnalyserRef.current = localAnalyser
-    }
-
-    updateVolumes()
+    return (
+      <svg width={W} height={H} style={{ display: 'block', margin: '8px auto' }}>
+        {latencyHistory.map((v, i) => {
+          const barH = Math.min(H, (v / 150) * H)
+          const color = v < 50 ? '#48bb78' : v < 100 ? '#ecc94b' : '#fc8181'
+          return (
+            <rect
+              key={i}
+              x={i * (barW + 1)}
+              y={H - barH}
+              width={barW}
+              height={barH}
+              fill={color}
+              rx={1}
+            />
+          )
+        })}
+        {/* 50ms ライン */}
+        <line x1={0} y1={H - (50 / 150) * H} x2={W} y2={H - (50 / 150) * H}
+          stroke="#48bb78" strokeWidth={0.5} strokeDasharray="3 3" opacity={0.6} />
+        {/* 100ms ライン */}
+        <line x1={0} y1={H - (100 / 150) * H} x2={W} y2={H - (100 / 150) * H}
+          stroke="#fc8181" strokeWidth={0.5} strokeDasharray="3 3" opacity={0.6} />
+        <text x={W - 2} y={H - (50 / 150) * H - 2} fontSize={8} fill="#48bb78" textAnchor="end">50ms</text>
+        <text x={W - 2} y={H - (100 / 150) * H - 2} fontSize={8} fill="#fc8181" textAnchor="end">100ms</text>
+      </svg>
+    )
   }
 
-  const getRms = (analyser) => {
-    if (!analyser) return 0
-    const dataArray = new Uint8Array(analyser.fftSize)
-    analyser.getByteTimeDomainData(dataArray)
-    let sum = 0
-    for (let i = 0; i < dataArray.length; i++) {
-      const normalized = (dataArray[i] - 128) / 128
-      sum += normalized * normalized
-    }
-    return Math.sqrt(sum / dataArray.length)
-  }
-
-  const updateVolumes = () => {
-    setLocalVolume(getRms(localAnalyserRef.current))
-    setRemoteVolume(getRms(remoteAnalyserRef.current))
-    animationRef.current = requestAnimationFrame(updateVolumes)
-  }
+  const statStyle = { fontSize: '13px', color: '#888', margin: '2px 0' }
+  const valStyle = (v, good, warn) => ({
+    fontWeight: 'bold',
+    color: v == null ? '#888' : v < good ? '#48bb78' : v < warn ? '#ecc94b' : '#fc8181'
+  })
 
   return (
-    <div style={{ padding: '40px', fontFamily: 'sans-serif', textAlign: 'center' }}>
-      <h1>🎸 ミュージックミュージック</h1>
-      <p>URLを送って、一緒に弾こう。</p>
-      <p style={{ marginTop: '20px' }}>状態：{connectionStatus}</p>
+    <div style={{ padding: '32px', fontFamily: 'sans-serif', maxWidth: '480px', margin: '0 auto' }}>
+      <h1 style={{ fontSize: '20px', marginBottom: '4px' }}>🎸 ミュージックミュージック</h1>
+      <p style={{ fontSize: '12px', color: '#888', marginBottom: '16px' }}>URLを送って、一緒に弾こう。</p>
+
+      {isElectron && (
+        <p style={{ fontSize: '12px', color: useNative ? '#48bb78' : '#888', margin: '4px 0' }}>
+          {useNative ? '✅ ネイティブオーディオ（低遅延モード）' : 'Web Audioモード'}
+        </p>
+      )}
+
+      <p style={{ marginTop: '12px' }}>状態：{connectionStatus}</p>
       <p style={{ fontSize: '12px', color: '#888' }}>自分のID：{myId}</p>
       {peerId && <p style={{ fontSize: '12px', color: '#888' }}>相手のID：{peerId}</p>}
-
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+      {error && <p style={{ color: '#fc8181', fontSize: '13px' }}>{error}</p>}
 
       {peerId && !isCallActive && (
         <button
           onClick={callPeer}
-          style={{ fontSize: '18px', padding: '10px 20px', marginTop: '20px' }}
+          style={{ fontSize: '16px', padding: '10px 24px', marginTop: '16px', cursor: 'pointer' }}
         >
           相手に発信する
         </button>
       )}
 
       {isCallActive && (
-        <>
-          <p style={{ color: 'green', fontWeight: 'bold', marginTop: '20px' }}>✅ 通話接続中</p>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '40px', marginTop: '20px' }}>
-            <div>
-              <p>自分のマイク</p>
-              <div style={{ width: '150px', height: '20px', background: '#333', borderRadius: '6px' }}>
-                <div
-                  style={{
-                    width: `${Math.min(localVolume * 300, 100)}%`,
-                    height: '100%',
-                    background: '#48bb78',
-                    borderRadius: '6px',
-                  }}
-                />
-              </div>
-            </div>
-            <div>
-              <p>相手から届いた音</p>
-              <div style={{ width: '150px', height: '20px', background: '#333', borderRadius: '6px' }}>
-                <div
-                  style={{
-                    width: `${Math.min(remoteVolume * 300, 100)}%`,
-                    height: '100%',
-                    background: '#4299e1',
-                    borderRadius: '6px',
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-          <p style={{ marginTop: '20px', fontSize: '14px', color: '#888' }}>
-            片方で声を出して、もう片方の「相手から届いた音」が反応するか確認してください
-          </p>
-        </>
+        <p style={{ color: '#48bb78', fontWeight: 'bold', marginTop: '16px' }}>✅ 通話接続中</p>
       )}
 
-      <audio ref={remoteAudioRef} autoPlay />
+      {/* ===== 遅延計測パネル ===== */}
+      {isCallActive && (
+        <div style={{
+          marginTop: '24px',
+          border: '1px solid #333',
+          borderRadius: '10px',
+          padding: '16px',
+          background: '#111',
+          color: '#eee'
+        }}>
+          <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '12px' }}>
+            📡 遅延計測（DataChannel RTT）
+          </div>
+
+          <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', marginBottom: '8px' }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '28px', fontWeight: 'bold', ...valStyle(latestRtt, 50, 100) }}>
+                {latestRtt != null ? `${latestRtt}` : '--'}
+              </div>
+              <div style={statStyle}>最新 RTT (ms)</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '22px', fontWeight: 'bold', ...valStyle(avgRtt, 50, 100) }}>
+                {avgRtt != null ? `${avgRtt}` : '--'}
+              </div>
+              <div style={statStyle}>平均</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#48bb78' }}>
+                {minRtt != null ? `${minRtt}` : '--'}
+              </div>
+              <div style={statStyle}>最小</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fc8181' }}>
+                {maxRtt != null ? `${maxRtt}` : '--'}
+              </div>
+              <div style={statStyle}>最大</div>
+            </div>
+          </div>
+
+          {renderGraph()}
+
+          <div style={{ fontSize: '11px', color: '#555', textAlign: 'center', marginBottom: '10px' }}>
+            緑 &lt; 50ms ／ 黄 50〜100ms ／ 赤 &gt; 100ms ／ RTT = 往復（片道はおよそ÷2）
+          </div>
+
+          {useNative && (
+            <div style={{ borderTop: '1px solid #222', paddingTop: '10px', marginTop: '4px' }}>
+              <div style={{ fontSize: '13px', color: '#aaa' }}>
+                🎛 naudiodon IPCチャンク間隔：
+                <span style={{ fontWeight: 'bold', color: ipcLatency ? (ipcLatency < 15 ? '#48bb78' : '#ecc94b') : '#888' }}>
+                  {ipcLatency != null ? ` 約${ipcLatency}ms` : ' 計測中...'}
+                </span>
+              </div>
+              <div style={{ fontSize: '10px', color: '#444', marginTop: '2px' }}>
+                ※ naudiodonが音声をchunkとして送ってくる間隔（バッファサイズ÷サンプルレート）
+              </div>
+            </div>
+          )}
+
+          <div style={{ marginTop: '12px', textAlign: 'center' }}>
+            {!measuring ? (
+              <button
+                onClick={startMeasuring}
+                style={{ padding: '8px 20px', fontSize: '13px', cursor: 'pointer', background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: '6px' }}
+              >
+                ▶ 計測開始
+              </button>
+            ) : (
+              <button
+                onClick={stopMeasuring}
+                style={{ padding: '8px 20px', fontSize: '13px', cursor: 'pointer', background: '#555', color: '#fff', border: 'none', borderRadius: '6px' }}
+              >
+                ⏹ 計測停止
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      <audio ref={remoteAudioRef} autoPlay playsInline />
     </div>
   )
 }
