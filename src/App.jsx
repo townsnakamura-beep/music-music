@@ -54,6 +54,11 @@ function App() {
         setError('マイク取得失敗: ' + err.message)
       })
 
+    // ★Renderスリープ防止ping（30秒ごと）
+    const pingInterval = setInterval(() => {
+      fetch('https://music-music.onrender.com/ping').catch(() => {})
+    }, 30000)
+
     const socket = io(SIGNALING_SERVER_URL)
     socketRef.current = socket
 
@@ -96,6 +101,7 @@ function App() {
 
     return () => {
       socket.disconnect()
+      clearInterval(pingInterval)
       if (animationRef.current) cancelAnimationFrame(animationRef.current)
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(t => t.stop())
@@ -132,7 +138,6 @@ function App() {
       setConnectionStatus('通話中')
     }
 
-    // 詳細ログ付きの接続状態監視
     pc.onconnectionstatechange = () => {
       console.log('接続状態変化:', pc.connectionState)
       console.log('ICE状態:', pc.iceConnectionState)
