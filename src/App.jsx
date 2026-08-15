@@ -45,26 +45,34 @@ function App() {
   const animationRef = useRef(null)
 
   useEffect(() => {
-    // マイクを起動時に一度だけ取得
+    // ★マイク取得と Socket.io 接続を完全に分離
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then((stream) => {
         localStreamRef.current = stream
+        setError(null)
       })
       .catch((err) => {
-        setError('マイク取得失敗: ' + err.message)
+        console.warn('マイク取得失敗:', err.message)
+        // マイクなし端末はエラー表示しない（PCで開く場合を考慮）
       })
 
-    // ★Renderスリープ防止ping（30秒ごと）
+    // Renderスリープ防止ping（30秒ごと）
     const pingInterval = setInterval(() => {
       fetch('https://music-music.onrender.com/ping').catch(() => {})
     }, 30000)
 
+    // ★Socket.io接続はマイクと無関係に即実行
     const socket = io(SIGNALING_SERVER_URL)
     socketRef.current = socket
 
     socket.on('connect', () => {
       setMyId(socket.id)
       setConnectionStatus('サーバーに接続済み・相手を待機中')
+    })
+
+    socket.on('connect_error', (err) => {
+      setConnectionStatus('サーバー接続エラー')
+      console.error('Socket.io接続エラー:', err)
     })
 
     socket.on('peer-available', (otherId) => {
@@ -140,7 +148,6 @@ function App() {
 
     pc.onconnectionstatechange = () => {
       console.log('接続状態変化:', pc.connectionState)
-      console.log('ICE状態:', pc.iceConnectionState)
       if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
         setConnectionStatus('接続が切断されました')
         setIsCallActive(false)
