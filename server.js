@@ -36,6 +36,8 @@ io.on('connection', (socket) => {
   })
 })
 
-httpServer.listen(3001, () => {
-  console.log('シグナリングサーバー起動中： http://localhost:3001')
+// ★ここが重要：Renderの動的ポートに対応
+const PORT = process.env.PORT || 3001
+httpServer.listen(PORT, '0.0.0.0', () => {
+  console.log(`シグナリングサーバー起動中： port ${PORT}`)
 })
