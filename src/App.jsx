@@ -11,7 +11,6 @@ const ICE_SERVERS = {
   ],
 }
 
-// 最大保持サンプル数
 const MAX_SAMPLES = 60
 
 function App() {
@@ -22,13 +21,12 @@ function App() {
   const [error, setError] = useState(null)
   const [useNative, setUseNative] = useState(false)
 
-  // 遅延計測ステート
-  const [latencyHistory, setLatencyHistory] = useState([])   // RTT (ms) の配列
+  const [latencyHistory, setLatencyHistory] = useState([])
   const [latestRtt, setLatestRtt] = useState(null)
   const [minRtt, setMinRtt] = useState(null)
   const [maxRtt, setMaxRtt] = useState(null)
   const [avgRtt, setAvgRtt] = useState(null)
-  const [ipcLatency, setIpcLatency] = useState(null)         // naudiodon→IPC遅延
+  const [ipcLatency, setIpcLatency] = useState(null)
   const [measuring, setMeasuring] = useState(false)
 
   const socketRef = useRef(null)
@@ -37,13 +35,13 @@ function App() {
   const localStreamRef = useRef(null)
   const remoteAudioRef = useRef(null)
   const audioContextRef = useRef(null)
+  const trackGeneratorRef = useRef(null)
   const pingIntervalRef = useRef(null)
-  const pendingPingsRef = useRef({})  // pingId -> sentAt
+  const pendingPingsRef = useRef({})
   const latencyHistoryRef = useRef([])
 
   const isElectron = typeof window.electronAPI !== 'undefined'
 
-  // --- IPC遅延計測（naudiodonチャンク到達の時刻差） ---
   const ipcTimestampsRef = useRef([])
   const measureIpcLatency = useCallback((chunkReceivedAt) => {
     const ts = ipcTimestampsRef.current
@@ -127,14 +125,16 @@ function App() {
   const initAudio = async () => {
     if (isElectron && window.electronAPI) {
       try {
-        const audioContext = new AudioContext({ sampleRate: 44100 })
-        audioContextRef.current = audioContext
+        const trackGenerator = new MediaStreamTrackGenerator({ kind: 'audio' })
+        trackGeneratorRef.current = trackGenerator
+        const stream = new MediaStream([trackGenerator])
+        localStreamRef.current = stream
 
-        const streamDestination = audioContext.createMediaStreamDestination()
-        localStreamRef.current = streamDestination.stream
+        const writer = trackGenerator.writable.getWriter()
 
         await window.electronAPI.startAudio()
         setUseNative(true)
+        console.log('🚀 TrackGeneratorモード起動')
 
         window.electronAPI.onAudioData((chunk) => {
           const receivedAt = performance.now()
@@ -146,22 +146,24 @@ function App() {
             float32[i] = int16[i] / 32768.0
           }
 
-          const audioBuffer = audioContext.createBuffer(2, float32.length / 2, 44100)
-          const channelL = audioBuffer.getChannelData(0)
-          const channelR = audioBuffer.getChannelData(1)
-          for (let i = 0; i < float32.length / 2; i++) {
-            channelL[i] = float32[i * 2]
-            channelR[i] = float32[i * 2 + 1]
+          // 256サンプルずつに分割して送る
+          const CHUNK_SIZE = 256
+          for (let offset = 0; offset < float32.length; offset += CHUNK_SIZE) {
+            const slice = float32.slice(offset, offset + CHUNK_SIZE)
+            const audioData = new AudioData({
+              format: 'f32',
+              sampleRate: 44100,
+              numberOfFrames: slice.length,
+              numberOfChannels: 1,
+              timestamp: (receivedAt + (offset / 44100) * 1000) * 1000,
+              data: slice,
+            })
+            writer.write(audioData).catch(() => {})
           }
-
-          const source = audioContext.createBufferSource()
-          source.buffer = audioBuffer
-          source.connect(streamDestination)
-          source.start()
         })
 
       } catch (err) {
-        console.warn('naudiodon失敗、フォールバック:', err)
+        console.warn('naudiodon/TrackGenerator失敗、フォールバック:', err)
         await initWebAudio()
       }
     } else {
@@ -182,12 +184,10 @@ function App() {
     const pc = new RTCPeerConnection(ICE_SERVERS)
     peerConnectionRef.current = pc
 
-    // DataChannel（計測用ping/pong）
     const dc = pc.createDataChannel('latency', { ordered: false, maxRetransmits: 0 })
     dataChannelRef.current = dc
     setupDataChannel(dc)
 
-    // 相手側からのDataChannel受信
     pc.ondatachannel = (event) => {
       setupDataChannel(event.channel)
     }
@@ -228,36 +228,27 @@ function App() {
       const now = performance.now()
       try {
         const msg = JSON.parse(event.data)
-
         if (msg.type === 'ping') {
-          // pongを返す
           if (dc.readyState === 'open') {
             dc.send(JSON.stringify({ type: 'pong', id: msg.id, sentAt: msg.sentAt }))
           }
         } else if (msg.type === 'pong') {
-          // RTT計算
           const rtt = now - msg.sentAt
           delete pendingPingsRef.current[msg.id]
-
           const history = [...latencyHistoryRef.current, Math.round(rtt)]
           if (history.length > MAX_SAMPLES) history.shift()
           latencyHistoryRef.current = history
-
           const min = Math.min(...history)
           const max = Math.max(...history)
           const avg = Math.round(history.reduce((a, b) => a + b, 0) / history.length)
-
           setLatestRtt(Math.round(rtt))
           setMinRtt(min)
           setMaxRtt(max)
           setAvgRtt(avg)
           setLatencyHistory([...history])
         }
-      } catch (e) {
-        // JSONパースエラーは無視
-      }
+      } catch (e) {}
     }
-
     dc.onopen = () => {
       console.log('DataChannel open')
       dataChannelRef.current = dc
@@ -303,36 +294,22 @@ function App() {
     }
   }
 
-  // ミニバーグラフ（100ms = 100%）
   const renderGraph = () => {
     if (latencyHistory.length === 0) return null
     const W = 320
     const H = 80
     const barW = Math.max(2, W / MAX_SAMPLES - 1)
-
     return (
       <svg width={W} height={H} style={{ display: 'block', margin: '8px auto' }}>
         {latencyHistory.map((v, i) => {
           const barH = Math.min(H, (v / 150) * H)
           const color = v < 50 ? '#48bb78' : v < 100 ? '#ecc94b' : '#fc8181'
           return (
-            <rect
-              key={i}
-              x={i * (barW + 1)}
-              y={H - barH}
-              width={barW}
-              height={barH}
-              fill={color}
-              rx={1}
-            />
+            <rect key={i} x={i * (barW + 1)} y={H - barH} width={barW} height={barH} fill={color} rx={1} />
           )
         })}
-        {/* 50ms ライン */}
-        <line x1={0} y1={H - (50 / 150) * H} x2={W} y2={H - (50 / 150) * H}
-          stroke="#48bb78" strokeWidth={0.5} strokeDasharray="3 3" opacity={0.6} />
-        {/* 100ms ライン */}
-        <line x1={0} y1={H - (100 / 150) * H} x2={W} y2={H - (100 / 150) * H}
-          stroke="#fc8181" strokeWidth={0.5} strokeDasharray="3 3" opacity={0.6} />
+        <line x1={0} y1={H - (50 / 150) * H} x2={W} y2={H - (50 / 150) * H} stroke="#48bb78" strokeWidth={0.5} strokeDasharray="3 3" opacity={0.6} />
+        <line x1={0} y1={H - (100 / 150) * H} x2={W} y2={H - (100 / 150) * H} stroke="#fc8181" strokeWidth={0.5} strokeDasharray="3 3" opacity={0.6} />
         <text x={W - 2} y={H - (50 / 150) * H - 2} fontSize={8} fill="#48bb78" textAnchor="end">50ms</text>
         <text x={W - 2} y={H - (100 / 150) * H - 2} fontSize={8} fill="#fc8181" textAnchor="end">100ms</text>
       </svg>
@@ -362,10 +339,7 @@ function App() {
       {error && <p style={{ color: '#fc8181', fontSize: '13px' }}>{error}</p>}
 
       {peerId && !isCallActive && (
-        <button
-          onClick={callPeer}
-          style={{ fontSize: '16px', padding: '10px 24px', marginTop: '16px', cursor: 'pointer' }}
-        >
+        <button onClick={callPeer} style={{ fontSize: '16px', padding: '10px 24px', marginTop: '16px', cursor: 'pointer' }}>
           相手に発信する
         </button>
       )}
@@ -374,53 +348,31 @@ function App() {
         <p style={{ color: '#48bb78', fontWeight: 'bold', marginTop: '16px' }}>✅ 通話接続中</p>
       )}
 
-      {/* ===== 遅延計測パネル ===== */}
       {isCallActive && (
-        <div style={{
-          marginTop: '24px',
-          border: '1px solid #333',
-          borderRadius: '10px',
-          padding: '16px',
-          background: '#111',
-          color: '#eee'
-        }}>
-          <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '12px' }}>
-            📡 遅延計測（DataChannel RTT）
-          </div>
-
+        <div style={{ marginTop: '24px', border: '1px solid #333', borderRadius: '10px', padding: '16px', background: '#111', color: '#eee' }}>
+          <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '12px' }}>📡 遅延計測（DataChannel RTT）</div>
           <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', marginBottom: '8px' }}>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '28px', fontWeight: 'bold', ...valStyle(latestRtt, 50, 100) }}>
-                {latestRtt != null ? `${latestRtt}` : '--'}
-              </div>
+              <div style={{ fontSize: '28px', fontWeight: 'bold', ...valStyle(latestRtt, 50, 100) }}>{latestRtt != null ? `${latestRtt}` : '--'}</div>
               <div style={statStyle}>最新 RTT (ms)</div>
             </div>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '22px', fontWeight: 'bold', ...valStyle(avgRtt, 50, 100) }}>
-                {avgRtt != null ? `${avgRtt}` : '--'}
-              </div>
+              <div style={{ fontSize: '22px', fontWeight: 'bold', ...valStyle(avgRtt, 50, 100) }}>{avgRtt != null ? `${avgRtt}` : '--'}</div>
               <div style={statStyle}>平均</div>
             </div>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#48bb78' }}>
-                {minRtt != null ? `${minRtt}` : '--'}
-              </div>
+              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#48bb78' }}>{minRtt != null ? `${minRtt}` : '--'}</div>
               <div style={statStyle}>最小</div>
             </div>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fc8181' }}>
-                {maxRtt != null ? `${maxRtt}` : '--'}
-              </div>
+              <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#fc8181' }}>{maxRtt != null ? `${maxRtt}` : '--'}</div>
               <div style={statStyle}>最大</div>
             </div>
           </div>
-
           {renderGraph()}
-
           <div style={{ fontSize: '11px', color: '#555', textAlign: 'center', marginBottom: '10px' }}>
             緑 &lt; 50ms ／ 黄 50〜100ms ／ 赤 &gt; 100ms ／ RTT = 往復（片道はおよそ÷2）
           </div>
-
           {useNative && (
             <div style={{ borderTop: '1px solid #222', paddingTop: '10px', marginTop: '4px' }}>
               <div style={{ fontSize: '13px', color: '#aaa' }}>
@@ -434,20 +386,13 @@ function App() {
               </div>
             </div>
           )}
-
           <div style={{ marginTop: '12px', textAlign: 'center' }}>
             {!measuring ? (
-              <button
-                onClick={startMeasuring}
-                style={{ padding: '8px 20px', fontSize: '13px', cursor: 'pointer', background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: '6px' }}
-              >
+              <button onClick={startMeasuring} style={{ padding: '8px 20px', fontSize: '13px', cursor: 'pointer', background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: '6px' }}>
                 ▶ 計測開始
               </button>
             ) : (
-              <button
-                onClick={stopMeasuring}
-                style={{ padding: '8px 20px', fontSize: '13px', cursor: 'pointer', background: '#555', color: '#fff', border: 'none', borderRadius: '6px' }}
-              >
+              <button onClick={stopMeasuring} style={{ padding: '8px 20px', fontSize: '13px', cursor: 'pointer', background: '#555', color: '#fff', border: 'none', borderRadius: '6px' }}>
                 ⏹ 計測停止
               </button>
             )}
