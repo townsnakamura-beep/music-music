@@ -1,12 +1,9 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
-const portAudio = require('naudiodon')
-
-// チE�E��E�イス一覧確認用�E�E�E�確認後削除�E�E�E�E
-console.log('=== Audio Devices ===')
-console.log(JSON.stringify(portAudio.getDevices(), null, 2))
+const { RtAudio, RtAudioApi, RtAudioFormat } = require('audify')
 
 let mainWindow
-let audioInput
+let rtAudio = null
+let isStreaming = false
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -17,9 +14,8 @@ function createWindow() {
       contextIsolation: true,
       preload: __dirname + '/preload.cjs',
     },
-    title: 'ミュージチE�E��E�ミュージチE�E��E�',
+    title: 'Music Music',
   })
-
   mainWindow.loadURL('http://localhost:5173').catch(() => {
     setTimeout(() => mainWindow.loadURL('http://localhost:5173'), 3000)
   })
@@ -27,45 +23,49 @@ function createWindow() {
 
 ipcMain.handle('start-audio', () => {
   try {
-    audioInput = new portAudio.AudioIO({
-      inOptions: {
-        channelCount: 1,
-        sampleFormat: portAudio.SampleFormat16Bit,
-        sampleRate: 44100,
-        deviceId: -1,
-        closeOnError: true,
-      }
-    })
-
-    audioInput.on('data', (chunk) => {
-      if (mainWindow) {
-        mainWindow.webContents.send('audio-data', chunk)
-      }
-    })
-
-    audioInput.on('error', (err) => {
-      console.error('音声エラー:', err)
-    })
-
-    audioInput.start()
-    console.log('naudiodon音声キャプチャ開姁EdeviceId: -1')
+    if (isStreaming) return
+    rtAudio = new RtAudio(RtAudioApi.WINDOWS_ASIO)
+    rtAudio.openStream(
+      undefined,
+      { deviceId: 130, nChannels: 1 },
+      RtAudioFormat.RTAUDIO_SINT16,
+      44100,
+      256,
+      'MusicMusic',
+      (pcmBuffer) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('audio-data', pcmBuffer)
+        }
+      },
+      null,
+      null,
+      (type, msg) => { console.error('ASIOエラー', msg) }
+    )
+    rtAudio.start()
+    isStreaming = true
+    console.log('ASIO開始 ZOOM AMS-22 256samples@44100Hz')
   } catch (err) {
-    console.error('start-audio失敁E', err)
+    console.error('start-audio失敗:', err)
     throw err
   }
 })
 
 ipcMain.handle('stop-audio', () => {
-  if (audioInput) {
-    audioInput.quit()
-    audioInput = null
-    console.log('naudiodon音声キャプチャ停止')
-  }
+  try {
+    if (rtAudio && isStreaming) {
+      rtAudio.stop()
+      rtAudio.closeStream()
+      rtAudio = null
+      isStreaming = false
+    }
+  } catch (err) {}
 })
 
 app.whenReady().then(createWindow)
 
 app.on('window-all-closed', () => {
-  if (audioInput) audioInput.quit()
+  try {
+    if (rtAudio && isStreaming) { rtAudio.stop(); rtAudio.closeStream() }
+  } catch (e) {}
   if (process.platform !== 'darwin') app.quit()
 })
