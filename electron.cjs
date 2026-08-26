@@ -26,7 +26,7 @@ ipcMain.handle('start-audio', () => {
     if (isStreaming) return
     rtAudio = new RtAudio(RtAudioApi.WINDOWS_ASIO)
     rtAudio.openStream(
-      undefined,
+      null,
       { deviceId: 130, nChannels: 1 },
       2,
       44100,
@@ -36,10 +36,7 @@ ipcMain.handle('start-audio', () => {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('audio-data', pcmBuffer)
         }
-      },
-      null,
-      null,
-      (type, msg) => { console.error('ASIOエラー', msg) }
+      }
     )
     rtAudio.start()
     isStreaming = true
