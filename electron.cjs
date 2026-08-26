@@ -1,5 +1,5 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
-const { RtAudio, RtAudioApi, RtAudioFormat } = require('audify')
+const { RtAudio, RtAudioApi } = require('audify')
 
 let mainWindow
 let rtAudio = null
@@ -28,7 +28,7 @@ ipcMain.handle('start-audio', () => {
     rtAudio.openStream(
       undefined,
       { deviceId: 130, nChannels: 1 },
-      RtAudioFormat.RTAUDIO_SINT16,
+      2,
       44100,
       256,
       'MusicMusic',
