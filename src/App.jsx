@@ -146,7 +146,6 @@ function App() {
             float32[i] = int16[i] / 32768.0
           }
 
-          // 256サンプルずつに分割して送る
           const CHUNK_SIZE = 256
           for (let offset = 0; offset < float32.length; offset += CHUNK_SIZE) {
             const slice = float32.slice(offset, offset + CHUNK_SIZE)
@@ -210,6 +209,19 @@ function App() {
         remoteAudioRef.current.srcObject = remoteStream
         remoteAudioRef.current.play().catch(e => console.warn('再生エラー:', e))
       }
+
+      // ジッターバッファを最小化
+      try {
+        const receivers = pc.getReceivers()
+        receivers.forEach(receiver => {
+          if (receiver.track.kind === 'audio') {
+            if ('jitterBufferTarget' in receiver) {
+              receiver.jitterBufferTarget = 0
+            }
+          }
+        })
+      } catch (e) {}
+
       setIsCallActive(true)
       setConnectionStatus('通話中')
     }
