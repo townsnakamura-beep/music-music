@@ -20,6 +20,7 @@ function App() {
   const [isCallActive, setIsCallActive] = useState(false)
   const [error, setError] = useState(null)
   const [useNative, setUseNative] = useState(false)
+  const [useAsioOutput, setUseAsioOutput] = useState(false)
 
   const [latencyHistory, setLatencyHistory] = useState([])
   const [latestRtt, setLatestRtt] = useState(null)
@@ -39,6 +40,8 @@ function App() {
   const pingIntervalRef = useRef(null)
   const pendingPingsRef = useRef({})
   const latencyHistoryRef = useRef([])
+  const asioOutputContextRef = useRef(null)
+  const asioOutputWorkletRef = useRef(null)
 
   const isElectron = typeof window.electronAPI !== 'undefined'
 
@@ -118,6 +121,10 @@ function App() {
       }
       if (isElectron && window.electronAPI) {
         window.electronAPI.stopAudio()
+        window.electronAPI.stopAudioOutput()
+      }
+      if (asioOutputContextRef.current) {
+        asioOutputContextRef.current.close()
       }
     }
   }, [])
@@ -162,7 +169,7 @@ function App() {
         })
 
       } catch (err) {
-        console.warn('naudiodon/TrackGenerator失敗、フォールバック:', err)
+        console.warn('TrackGenerator失敗、フォールバック:', err)
         await initWebAudio()
       }
     } else {
@@ -176,6 +183,47 @@ function App() {
       localStreamRef.current = stream
     } catch (err) {
       console.warn('マイク取得失敗:', err.message)
+    }
+  }
+
+  const startAsioOutput = async () => {
+    if (!isElectron || !window.electronAPI) return false
+    try {
+      await window.electronAPI.startAudioOutput()
+      setUseAsioOutput(true)
+      console.log('🔊 ASIO出力開始')
+      return true
+    } catch (err) {
+      console.warn('ASIO出力失敗:', err)
+      return false
+    }
+  }
+
+  const setupAsioOutputFromTrack = async (remoteStream) => {
+    try {
+      const ctx = new AudioContext({ sampleRate: 44100 })
+      asioOutputContextRef.current = ctx
+
+      const source = ctx.createMediaStreamSource(remoteStream)
+      const processor = ctx.createScriptProcessor(256, 1, 1)
+
+      processor.onaudioprocess = (e) => {
+        const float32 = e.inputBuffer.getChannelData(0)
+        const int16 = new Int16Array(float32.length)
+        for (let i = 0; i < float32.length; i++) {
+          const s = Math.max(-1, Math.min(1, float32[i]))
+          int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff
+        }
+        window.electronAPI.audioPlay(int16.buffer)
+      }
+
+      source.connect(processor)
+      processor.connect(ctx.destination)
+      asioOutputWorkletRef.current = processor
+
+      console.log('🔊 ASIO出力パイプライン構築完了')
+    } catch (err) {
+      console.warn('ASIO出力パイプライン構築失敗:', err)
     }
   }
 
@@ -203,14 +251,29 @@ function App() {
       }
     }
 
-    pc.ontrack = (event) => {
+    pc.ontrack = async (event) => {
       const remoteStream = event.streams[0]
-      if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = remoteStream
-        remoteAudioRef.current.play().catch(e => console.warn('再生エラー:', e))
+
+      if (isElectron && window.electronAPI) {
+        const ok = await startAsioOutput()
+        if (ok) {
+          await setupAsioOutputFromTrack(remoteStream)
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = null
+          }
+        } else {
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = remoteStream
+            remoteAudioRef.current.play().catch(e => console.warn('再生エラー:', e))
+          }
+        }
+      } else {
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = remoteStream
+          remoteAudioRef.current.play().catch(e => console.warn('再生エラー:', e))
+        }
       }
 
-      // ジッターバッファを最小化
       try {
         const receivers = pc.getReceivers()
         receivers.forEach(receiver => {
@@ -344,6 +407,11 @@ function App() {
           {useNative ? '✅ ネイティブオーディオ（低遅延モード）' : 'Web Audioモード'}
         </p>
       )}
+      {isElectron && useAsioOutput && (
+        <p style={{ fontSize: '12px', color: '#48bb78', margin: '4px 0' }}>
+          🔊 ASIO出力（低遅延再生）
+        </p>
+      )}
 
       <p style={{ marginTop: '12px' }}>状態：{connectionStatus}</p>
       <p style={{ fontSize: '12px', color: '#888' }}>自分のID：{myId}</p>
@@ -388,13 +456,13 @@ function App() {
           {useNative && (
             <div style={{ borderTop: '1px solid #222', paddingTop: '10px', marginTop: '4px' }}>
               <div style={{ fontSize: '13px', color: '#aaa' }}>
-                🎛 naudiodon IPCチャンク間隔：
+                🎛 ASIOチャンク間隔：
                 <span style={{ fontWeight: 'bold', color: ipcLatency ? (ipcLatency < 15 ? '#48bb78' : '#ecc94b') : '#888' }}>
                   {ipcLatency != null ? ` 約${ipcLatency}ms` : ' 計測中...'}
                 </span>
               </div>
               <div style={{ fontSize: '10px', color: '#444', marginTop: '2px' }}>
-                ※ naudiodonが音声をchunkとして送ってくる間隔（バッファサイズ÷サンプルレート）
+                ※ ASIOが音声をchunkとして送ってくる間隔（bufferFrames÷sampleRate）
               </div>
             </div>
           )}
