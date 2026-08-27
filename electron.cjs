@@ -72,7 +72,7 @@ ipcMain.handle('start-audio-output', () => {
     if (isOutputStreaming) return
     rtAudioOut = new RtAudio(RtAudioApi.WINDOWS_ASIO)
     rtAudioOut.openStream(
-      { deviceId: 130, nChannels: 1 },
+      { deviceId: 129, nChannels: 1 }, // ASIO4ALL v2
       null,
       2,
       44100,
@@ -90,7 +90,7 @@ ipcMain.handle('start-audio-output', () => {
     )
     rtAudioOut.start()
     isOutputStreaming = true
-    console.log('ASIO出力開始 ZOOM AMS-22 256samples@44100Hz')
+    console.log('ASIO出力開始 ASIO4ALL v2 256samples@44100Hz')
   } catch (err) {
     console.error('start-audio-output失敗:', err)
     throw err
