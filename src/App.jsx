@@ -119,7 +119,7 @@ function App() {
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(t => t.stop())
       }
-      if (isElectron && window.electronAPI) {
+      if (false && isElectron && window.electronAPI) {
         window.electronAPI.stopAudio()
         window.electronAPI.stopAudioOutput()
       }
