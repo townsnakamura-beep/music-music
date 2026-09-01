@@ -281,12 +281,13 @@ function App() {
     dc.onopen = async () => {
       console.log('🎵 PCM DataChannel open')
       pcmChannelRef.current = dc
-      if (!pcmWorkletNodeRef.current) {
-        await setupPcmPlayback()
-        if (remoteAudioRef.current) {
-          remoteAudioRef.current.muted = true
-        }
-      }
+  // 一時無効化
+  // if (!pcmWorkletNodeRef.current) {
+  //   await setupPcmPlayback()
+  //   if (remoteAudioRef.current) {
+  //     remoteAudioRef.current.muted = true
+  //   }
+  // }
     }
     dc.onmessage = (event) => {
       if (pcmWorkletNodeRef.current) {
