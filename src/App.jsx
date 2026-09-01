@@ -119,7 +119,7 @@ function App() {
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(t => t.stop())
       }
-      if (false && isElectron && window.electronAPI) {
+      if (isElectron && window.electronAPI) {
         window.electronAPI.stopAudio()
         window.electronAPI.stopAudioOutput()
       }
@@ -204,7 +204,6 @@ function App() {
       const ctx = new AudioContext({ sampleRate: 44100 })
       asioOutputContextRef.current = ctx
 
-      // AudioContextがsuspendedの場合はresumeする
       if (ctx.state === 'suspended') {
         await ctx.resume()
       }
@@ -222,14 +221,12 @@ function App() {
         window.electronAPI.audioPlay(int16.buffer)
       }
 
-      // onaudioprocessを確実に発火させるため両方に接続
       const dest = ctx.createMediaStreamDestination()
       source.connect(processor)
       processor.connect(dest)
       processor.connect(ctx.destination)
 
       asioOutputWorkletRef.current = processor
-
       console.log('🔊 ASIO出力パイプライン構築完了', 'ctx.state:', ctx.state)
     } catch (err) {
       console.warn('ASIO出力パイプライン構築失敗:', err)
@@ -263,7 +260,7 @@ function App() {
     pc.ontrack = async (event) => {
       const remoteStream = event.streams[0]
 
-      if (isElectron && window.electronAPI) {
+      if (false && isElectron && window.electronAPI) {
         const ok = await startAsioOutput()
         if (ok) {
           await setupAsioOutputFromTrack(remoteStream)
@@ -371,8 +368,17 @@ function App() {
     try {
       await setupPeerConnection(peerId)
       const offer = await peerConnectionRef.current.createOffer()
-      await peerConnectionRef.current.setLocalDescription(offer)
-      socketRef.current.emit('offer', { to: peerId, offer })
+
+      // SDPマングリング：パケット間隔を20ms→10msに削減
+      let sdp = offer.sdp
+      sdp = sdp.replace(
+        /a=fmtp:111 /g,
+        'a=fmtp:111 ptime=10;minptime=10;useinbandfec=1;'
+      )
+      const modifiedOffer = { type: offer.type, sdp }
+
+      await peerConnectionRef.current.setLocalDescription(modifiedOffer)
+      socketRef.current.emit('offer', { to: peerId, offer: modifiedOffer })
     } catch (err) {
       setError('発信エラー: ' + err.message)
     }
