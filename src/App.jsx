@@ -33,15 +33,15 @@ function App() {
   const socketRef = useRef(null)
   const peerConnectionRef = useRef(null)
   const dataChannelRef = useRef(null)
-  const pcmChannelRef = useRef(null)       // PCM送受信専用DataChannel
+  const pcmChannelRef = useRef(null)
   const localStreamRef = useRef(null)
   const remoteAudioRef = useRef(null)
   const trackGeneratorRef = useRef(null)
   const pingIntervalRef = useRef(null)
   const pendingPingsRef = useRef({})
   const latencyHistoryRef = useRef([])
-  const pcmAudioContextRef = useRef(null)  // PCM再生用AudioContext
-  const pcmWorkletNodeRef = useRef(null)   // PCM再生用WorkletNode
+  const pcmAudioContextRef = useRef(null)
+  const pcmWorkletNodeRef = useRef(null)
 
   const isElectron = typeof window.electronAPI !== 'undefined'
 
@@ -150,11 +150,12 @@ function App() {
 
           // PCM DataChannelが開いていれば直送
           if (pcmChannelRef.current?.readyState === 'open') {
-            pcmChannelRef.current.send(int16.buffer)
+            const copy = int16.buffer.slice(0)
+            pcmChannelRef.current.send(copy)
             return
           }
 
-          // フォールバック：TrackGenerator経由でWebRTC音声トラック送信
+          // フォールバック：TrackGenerator経由
           const float32 = new Float32Array(int16.length)
           for (let i = 0; i < int16.length; i++) {
             float32[i] = int16[i] / 32768.0
@@ -192,7 +193,6 @@ function App() {
     }
   }
 
-  // PCM受信側：AudioWorkletで再生
   const setupPcmPlayback = async () => {
     try {
       const ctx = new AudioContext({ sampleRate: 44100 })
@@ -215,12 +215,10 @@ function App() {
     const pc = new RTCPeerConnection(ICE_SERVERS)
     peerConnectionRef.current = pc
 
-    // 遅延計測用DataChannel
     const dc = pc.createDataChannel('latency', { ordered: false, maxRetransmits: 0 })
     dataChannelRef.current = dc
     setupDataChannel(dc)
 
-    // PCM直送用DataChannel（ordered=false, maxRetransmits=0 で最低遅延）
     const pcmDc = pc.createDataChannel('pcm', { ordered: false, maxRetransmits: 0 })
     pcmChannelRef.current = pcmDc
     setupPcmChannel(pcmDc)
@@ -233,7 +231,6 @@ function App() {
       }
     }
 
-    // WebRTC音声トラックも一応送る（フォールバック用）
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
         pc.addTrack(track, localStreamRef.current)
@@ -247,13 +244,9 @@ function App() {
     }
 
     pc.ontrack = async (event) => {
-      // PCM DataChannelが使えていればWebRTC音声トラックは無視
-      // フォールバック：<audio>タグで再生
       if (remoteAudioRef.current) {
         remoteAudioRef.current.srcObject = event.streams[0]
-        // PCMチャンネルが確立したら自動でミュートする
       }
-
       try {
         const receivers = pc.getReceivers()
         receivers.forEach(receiver => {
@@ -283,19 +276,18 @@ function App() {
     dc.onopen = async () => {
       console.log('🎵 PCM DataChannel open')
       pcmChannelRef.current = dc
-      // 受信側：AudioWorkletを初期化
       if (!pcmWorkletNodeRef.current) {
         await setupPcmPlayback()
-        // WebRTC音声トラックをミュート
         if (remoteAudioRef.current) {
           remoteAudioRef.current.muted = true
         }
       }
     }
     dc.onmessage = (event) => {
-      // PCMデータをWorkletに送る
       if (pcmWorkletNodeRef.current) {
-        pcmWorkletNodeRef.current.port.postMessage(event.data, [event.data])
+        // コピーを作ってから転送（detach済みバッファ対策）
+        const copy = event.data.slice(0)
+        pcmWorkletNodeRef.current.port.postMessage(copy, [copy])
       }
     }
     dc.onclose = () => {
@@ -369,7 +361,6 @@ function App() {
       await setupPeerConnection(peerId)
       const offer = await peerConnectionRef.current.createOffer()
 
-      // SDPマングリング：パケット間隔を20ms→10msに削減
       let sdp = offer.sdp
       sdp = sdp.replace(
         /a=fmtp:111 /g,
