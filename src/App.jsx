@@ -20,7 +20,6 @@ function App() {
   const [isCallActive, setIsCallActive] = useState(false)
   const [error, setError] = useState(null)
   const [useNative, setUseNative] = useState(false)
-  const [usePcmChannel, setUsePcmChannel] = useState(false)
 
   const [latencyHistory, setLatencyHistory] = useState([])
   const [latestRtt, setLatestRtt] = useState(null)
@@ -33,15 +32,12 @@ function App() {
   const socketRef = useRef(null)
   const peerConnectionRef = useRef(null)
   const dataChannelRef = useRef(null)
-  const pcmChannelRef = useRef(null)
   const localStreamRef = useRef(null)
   const remoteAudioRef = useRef(null)
   const trackGeneratorRef = useRef(null)
   const pingIntervalRef = useRef(null)
   const pendingPingsRef = useRef({})
   const latencyHistoryRef = useRef([])
-  const pcmAudioContextRef = useRef(null)
-  const pcmWorkletNodeRef = useRef(null)
 
   const isElectron = typeof window.electronAPI !== 'undefined'
 
@@ -122,9 +118,6 @@ function App() {
       if (isElectron && window.electronAPI) {
         window.electronAPI.stopAudio()
       }
-      if (pcmAudioContextRef.current) {
-        pcmAudioContextRef.current.close()
-      }
     }
   }, [])
 
@@ -147,18 +140,11 @@ function App() {
           measureIpcLatency(receivedAt)
 
           const int16 = new Int16Array(chunk.buffer || chunk)
-
-          // PCM DataChannelが開いていれば直送
-          if (pcmChannelRef.current?.readyState === 'open') {
-            pcmChannelRef.current.send(int16.buffer)
-            return
-          }
-
-          // フォールバック：TrackGenerator経由
           const float32 = new Float32Array(int16.length)
           for (let i = 0; i < int16.length; i++) {
             float32[i] = int16[i] / 32768.0
           }
+
           const CHUNK_SIZE = 256
           for (let offset = 0; offset < float32.length; offset += CHUNK_SIZE) {
             const slice = float32.slice(offset, offset + CHUNK_SIZE)
@@ -192,29 +178,6 @@ function App() {
     }
   }
 
-  // PCM受信側：AudioWorkletで再生
-  // sampleRateを指定せずデバイスのデフォルトに合わせる
-  // 送信側44100Hz→受信側でリサンプリング
-  const setupPcmPlayback = async () => {
-    try {
-      const ctx = new AudioContext() // デバイスのデフォルトsampleRateを使用
-      const deviceSampleRate = ctx.sampleRate
-      pcmAudioContextRef.current = ctx
-      if (ctx.state === 'suspended') await ctx.resume()
-
-      await ctx.audioWorklet.addModule('/audio-worklet-processor.js')
-      const workletNode = new AudioWorkletNode(ctx, 'pcm-player-processor')
-      workletNode.connect(ctx.destination)
-      pcmWorkletNodeRef.current = workletNode
-
-      // デバイスのsampleRateを送信側に通知（将来のリサンプリング用）
-      console.log(`🔊 PCM AudioWorklet再生準備完了 sampleRate:${deviceSampleRate}`)
-      setUsePcmChannel(true)
-    } catch (err) {
-      console.warn('PCM AudioWorklet初期化失敗:', err)
-    }
-  }
-
   const setupPeerConnection = async (targetId) => {
     const pc = new RTCPeerConnection(ICE_SERVERS)
     peerConnectionRef.current = pc
@@ -223,15 +186,9 @@ function App() {
     dataChannelRef.current = dc
     setupDataChannel(dc)
 
-    const pcmDc = pc.createDataChannel('pcm', { ordered: false, maxRetransmits: 0 })
-    pcmChannelRef.current = pcmDc
-    setupPcmChannel(pcmDc)
-
     pc.ondatachannel = (event) => {
       if (event.channel.label === 'latency') {
         setupDataChannel(event.channel)
-      } else if (event.channel.label === 'pcm') {
-        setupPcmChannel(event.channel)
       }
     }
 
@@ -248,8 +205,11 @@ function App() {
     }
 
     pc.ontrack = async (event) => {
+      const remoteStream = event.streams[0]
       if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = event.streams[0]
+        remoteAudioRef.current.srcObject = remoteStream
+        remoteAudioRef.current.muted = false
+        remoteAudioRef.current.play().catch(e => console.warn('再生エラー:', e))
       }
 
       try {
@@ -273,51 +233,6 @@ function App() {
         setIsCallActive(false)
         stopMeasuring()
       }
-    }
-  }
-
-  const setupPcmChannel = (dc) => {
-    dc.binaryType = 'arraybuffer'
-    dc.onopen = async () => {
-      console.log('🎵 PCM DataChannel open')
-      pcmChannelRef.current = dc
-  // 一時無効化
-  // if (!pcmWorkletNodeRef.current) {
-  //   await setupPcmPlayback()
-  //   if (remoteAudioRef.current) {
-  //     remoteAudioRef.current.muted = true
-  //   }
-  // }
-    }
-    dc.onmessage = (event) => {
-      if (pcmWorkletNodeRef.current) {
-        // 44100→デバイスsampleRateへのリサンプリング
-        const deviceRate = pcmAudioContextRef.current?.sampleRate || 48000
-        const srcRate = 44100
-        const int16In = new Int16Array(event.data)
-
-        if (deviceRate === srcRate) {
-          // レート同一：そのまま送る
-          pcmWorkletNodeRef.current.port.postMessage(event.data, [event.data])
-        } else {
-          // リサンプリング（線形補間）
-          const ratio = srcRate / deviceRate
-          const outLen = Math.round(int16In.length / ratio)
-          const int16Out = new Int16Array(outLen)
-          for (let i = 0; i < outLen; i++) {
-            const srcIdx = i * ratio
-            const lo = Math.floor(srcIdx)
-            const hi = Math.min(lo + 1, int16In.length - 1)
-            const frac = srcIdx - lo
-            int16Out[i] = Math.round(int16In[lo] * (1 - frac) + int16In[hi] * frac)
-          }
-          pcmWorkletNodeRef.current.port.postMessage(int16Out.buffer, [int16Out.buffer])
-        }
-      }
-    }
-    dc.onclose = () => {
-      console.log('PCM DataChannel closed')
-      setUsePcmChannel(false)
     }
   }
 
@@ -436,11 +351,6 @@ function App() {
       {isElectron && (
         <p style={{ fontSize: '12px', color: useNative ? '#48bb78' : '#888', margin: '4px 0' }}>
           {useNative ? '✅ ネイティブオーディオ（低遅延モード）' : 'Web Audioモード'}
-        </p>
-      )}
-      {usePcmChannel && (
-        <p style={{ fontSize: '12px', color: '#48bb78', margin: '4px 0' }}>
-          ⚡ PCM直送モード（超低遅延）
         </p>
       )}
 
