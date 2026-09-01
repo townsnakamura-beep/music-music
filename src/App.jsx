@@ -195,7 +195,7 @@ function App() {
 
   const setupPcmPlayback = async () => {
     try {
-      const ctx = new AudioContext({ sampleRate: 44100 })
+      const ctx = new AudioContext({ sampleRate: 48000 })
       pcmAudioContextRef.current = ctx
       if (ctx.state === 'suspended') await ctx.resume()
 
