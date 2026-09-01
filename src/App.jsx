@@ -150,8 +150,7 @@ function App() {
 
           // PCM DataChannelが開いていれば直送
           if (pcmChannelRef.current?.readyState === 'open') {
-            const copy = int16.buffer.slice(0)
-            pcmChannelRef.current.send(copy)
+            pcmChannelRef.current.send(int16.buffer)
             return
           }
 
@@ -193,9 +192,13 @@ function App() {
     }
   }
 
+  // PCM受信側：AudioWorkletで再生
+  // sampleRateを指定せずデバイスのデフォルトに合わせる
+  // 送信側44100Hz→受信側でリサンプリング
   const setupPcmPlayback = async () => {
     try {
-      const ctx = new AudioContext({ sampleRate: 48000 })
+      const ctx = new AudioContext() // デバイスのデフォルトsampleRateを使用
+      const deviceSampleRate = ctx.sampleRate
       pcmAudioContextRef.current = ctx
       if (ctx.state === 'suspended') await ctx.resume()
 
@@ -204,7 +207,8 @@ function App() {
       workletNode.connect(ctx.destination)
       pcmWorkletNodeRef.current = workletNode
 
-      console.log('🔊 PCM AudioWorklet再生準備完了')
+      // デバイスのsampleRateを送信側に通知（将来のリサンプリング用）
+      console.log(`🔊 PCM AudioWorklet再生準備完了 sampleRate:${deviceSampleRate}`)
       setUsePcmChannel(true)
     } catch (err) {
       console.warn('PCM AudioWorklet初期化失敗:', err)
@@ -247,6 +251,7 @@ function App() {
       if (remoteAudioRef.current) {
         remoteAudioRef.current.srcObject = event.streams[0]
       }
+
       try {
         const receivers = pc.getReceivers()
         receivers.forEach(receiver => {
@@ -285,9 +290,28 @@ function App() {
     }
     dc.onmessage = (event) => {
       if (pcmWorkletNodeRef.current) {
-        // コピーを作ってから転送（detach済みバッファ対策）
-        const copy = event.data.slice(0)
-        pcmWorkletNodeRef.current.port.postMessage(copy, [copy])
+        // 44100→デバイスsampleRateへのリサンプリング
+        const deviceRate = pcmAudioContextRef.current?.sampleRate || 48000
+        const srcRate = 44100
+        const int16In = new Int16Array(event.data)
+
+        if (deviceRate === srcRate) {
+          // レート同一：そのまま送る
+          pcmWorkletNodeRef.current.port.postMessage(event.data, [event.data])
+        } else {
+          // リサンプリング（線形補間）
+          const ratio = srcRate / deviceRate
+          const outLen = Math.round(int16In.length / ratio)
+          const int16Out = new Int16Array(outLen)
+          for (let i = 0; i < outLen; i++) {
+            const srcIdx = i * ratio
+            const lo = Math.floor(srcIdx)
+            const hi = Math.min(lo + 1, int16In.length - 1)
+            const frac = srcIdx - lo
+            int16Out[i] = Math.round(int16In[lo] * (1 - frac) + int16In[hi] * frac)
+          }
+          pcmWorkletNodeRef.current.port.postMessage(int16Out.buffer, [int16Out.buffer])
+        }
       }
     }
     dc.onclose = () => {
