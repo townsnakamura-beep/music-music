@@ -36,7 +36,7 @@ ipcMain.handle('start-audio', () => {
       null,
       { deviceId: 130, nChannels: 1 },
       2,
-      44100,
+      48000,
       256,
       'MusicMusic',
       (pcmBuffer) => {
