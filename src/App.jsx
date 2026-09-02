@@ -169,14 +169,18 @@ function App() {
     }
   }
 
-  const initWebAudio = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      localStreamRef.current = stream
-    } catch (err) {
-      console.warn('マイク取得失敗:', err.message)
-    }
+const initWebAudio = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    localStreamRef.current = stream
+  } catch (err) {
+    console.warn('マイク取得失敗、無音トラックで代替:', err.message)
+    // 無音トラックを作成してWebRTCに渡す
+    const ctx = new AudioContext()
+    const dst = ctx.createMediaStreamDestination()
+    localStreamRef.current = dst.stream
   }
+}
 
   const setupPeerConnection = async (targetId) => {
     const pc = new RTCPeerConnection(ICE_SERVERS)
