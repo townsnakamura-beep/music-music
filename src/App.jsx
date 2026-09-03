@@ -225,7 +225,7 @@ function App() {
         pc.getReceivers().forEach(receiver => {
           if (receiver.track.kind === 'audio') {
             if ('jitterBufferTarget' in receiver) {
-              receiver.jitterBufferTarget = 0
+              receiver.jitterBufferTarget = 20
               console.log('✅ jitterBufferTarget = 0 設定')
             }
           }
