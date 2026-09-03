@@ -27,7 +27,7 @@ function createWindow() {
   })
 }
 
-// ── ASIO入力（既存） ──────────────────────────────────────
+// ── ASIO入力 ──────────────────────────────────────────────
 ipcMain.handle('start-audio', () => {
   try {
     if (isStreaming) return
@@ -41,13 +41,18 @@ ipcMain.handle('start-audio', () => {
       'MusicMusic',
       (pcmBuffer) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('audio-data', pcmBuffer)
+          // 純粋なArrayBufferとして送信（Bufferプールの参照を避ける）
+          const ab = pcmBuffer.buffer.slice(
+            pcmBuffer.byteOffset,
+            pcmBuffer.byteOffset + pcmBuffer.byteLength
+          )
+          mainWindow.webContents.send('audio-data', ab)
         }
       }
     )
     rtAudio.start()
     isStreaming = true
-    console.log('ASIO入力開始 ZOOM AMS-22 256samples@44100Hz')
+    console.log('ASIO入力開始 ZOOM AMS-22 256samples@48000Hz')
   } catch (err) {
     console.error('start-audio失敗:', err)
     throw err
@@ -65,17 +70,16 @@ ipcMain.handle('stop-audio', () => {
   } catch (err) {}
 })
 
-// ── ASIO出力（新規追加） ──────────────────────────────────
-
+// ── ASIO出力 ──────────────────────────────────────────────
 ipcMain.handle('start-audio-output', () => {
   try {
     if (isOutputStreaming) return
     rtAudioOut = new RtAudio(RtAudioApi.WINDOWS_ASIO)
     rtAudioOut.openStream(
-      { deviceId: 129, nChannels: 1 }, // ASIO4ALL v2
+      { deviceId: 129, nChannels: 1 },
       null,
       2,
-      44100,
+      48000,
       256,
       'MusicMusicOut',
       (outputBuffer) => {
@@ -90,7 +94,7 @@ ipcMain.handle('start-audio-output', () => {
     )
     rtAudioOut.start()
     isOutputStreaming = true
-    console.log('ASIO出力開始 ASIO4ALL v2 256samples@44100Hz')
+    console.log('ASIO出力開始 ASIO4ALL v2 256samples@48000Hz')
   } catch (err) {
     console.error('start-audio-output失敗:', err)
     throw err
