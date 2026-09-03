@@ -19,31 +19,37 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
     }
   }
 
-  process(inputs, outputs) {
-    const output = outputs[0][0]
-    if (!output) return true
-    let written = 0
-    while (written < output.length && this._queue.length > 0) {
-      const chunk = this._queue[0]
-      const remaining = output.length - written
-      if (chunk.length <= remaining) {
-        output.set(chunk, written)
-        written += chunk.length
-        this._totalFrames -= chunk.length
-        this._queue.shift()
-      } else {
-        output.set(chunk.subarray(0, remaining), written)
-        this._queue[0] = chunk.subarray(remaining)
-        this._totalFrames -= remaining
-        written = output.length
-      }
-    }
-    // データ不足時はゼロ埋め
-    if (written < output.length) {
-      output.fill(0, written)
-    }
-    return true
+process(inputs, outputs) {
+  const output = outputs[0][0]
+  if (!output) return true
+
+  // バッファ状況をログ（100回に1回）
+  if (!this._logCount) this._logCount = 0
+  this._logCount++
+  if (this._logCount % 100 === 0) {
+    this.port.postMessage({ type: 'debug', frames: this._totalFrames, queue: this._queue.length })
   }
+
+  let written = 0
+  while (written < output.length && this._queue.length > 0) {
+    const chunk = this._queue[0]
+    const remaining = output.length - written
+    if (chunk.length <= remaining) {
+      output.set(chunk, written)
+      written += chunk.length
+      this._totalFrames -= chunk.length
+      this._queue.shift()
+    } else {
+      output.set(chunk.subarray(0, remaining), written)
+      this._queue[0] = chunk.subarray(remaining)
+      this._totalFrames -= remaining
+      written = output.length
+    }
+  }
+  if (written < output.length) {
+    output.fill(0, written)
+  }
+  return true
 }
 
 registerProcessor('pcm-player-processor', PcmPlayerProcessor)
