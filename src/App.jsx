@@ -273,18 +273,8 @@ function App() {
     }
 
     pc.ontrack = async (event) => {
-      if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = event.streams[0]
-      }
-      try {
-        pc.getReceivers().forEach(receiver => {
-          if (receiver.track.kind === 'audio') {
-            if ('jitterBufferTarget' in receiver) {
-              receiver.jitterBufferTarget = 0
-            }
-          }
-        })
-      } catch (e) {}
+      // PCM DataChannel経由で再生するためWebRTCトラックは完全に無視
+      console.log('🎵 ontrack fired (WebRTCトラック無視、PCM DataChannel優先)')
       setIsCallActive(true)
       setConnectionStatus('通話中')
     }
@@ -313,7 +303,6 @@ function App() {
 
     dc.onmessage = (event) => {
       if (!isOfferSide && pcmWorkletNodeRef.current) {
-        // 最初の3パケットだけデータを確認
         if (!window._pcmRecvCount) window._pcmRecvCount = 0
         if (window._pcmRecvCount < 3) {
           const int16 = new Int16Array(event.data)
