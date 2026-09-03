@@ -34,7 +34,7 @@ ipcMain.handle('start-audio', () => {
     rtAudio = new RtAudio(RtAudioApi.WINDOWS_ASIO)
     rtAudio.openStream(
       null,
-      { deviceId: 129, nChannels: 1 },
+      { deviceId: 130, nChannels: 1 },
       2,
       48000,
       256,
