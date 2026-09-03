@@ -4,7 +4,9 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
     this._queue = []
     this._totalFrames = 0
     this._logCount = 0
-    const MAX_FRAMES = 4096
+    // バッファ目標：約20ms分（48000Hz × 0.02 = 960frames）
+    const TARGET_FRAMES = 960
+    const MAX_FRAMES = 1920 // 約40ms、これを超えたら古いものを削除
     this.port.onmessage = (e) => {
       const int16 = new Int16Array(e.data)
       const float32 = new Float32Array(int16.length)
@@ -13,6 +15,7 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
       }
       this._queue.push(float32)
       this._totalFrames += float32.length
+      // バッファ溢れ防止：MAX_FRAMESを超えたら古いものを削除
       while (this._totalFrames > MAX_FRAMES && this._queue.length > 1) {
         this._totalFrames -= this._queue.shift().length
       }
@@ -24,7 +27,7 @@ class PcmPlayerProcessor extends AudioWorkletProcessor {
     if (!output) return true
 
     this._logCount++
-    if (this._logCount % 100 === 0) {
+    if (this._logCount % 200 === 0) {
       this.port.postMessage({ type: 'debug', frames: this._totalFrames, queue: this._queue.length })
     }
 
