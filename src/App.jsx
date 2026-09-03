@@ -148,10 +148,22 @@ function App() {
           const receivedAt = performance.now()
           measureIpcLatency(receivedAt)
 
-          const int16 = new Int16Array(chunk.buffer || chunk)
+          // Node.js Bufferから安全にInt16Arrayを作成
+          const safeBuffer = chunk instanceof ArrayBuffer
+            ? chunk
+            : chunk.buffer
+              ? chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength)
+              : new Uint8Array(chunk).buffer
+          const int16 = new Int16Array(safeBuffer)
+
+          // byteOffsetデバッグ（最初の1回だけ）
+          if (!window._pcmDebugDone) {
+            window._pcmDebugDone = true
+            console.log('PCM chunk type:', chunk?.constructor?.name, 'byteLength:', int16.byteLength, 'frames:', int16.length)
+          }
 
           if (pcmChannelRef.current?.readyState === 'open') {
-            pcmChannelRef.current.send(int16.buffer.slice(int16.byteOffset, int16.byteOffset + int16.byteLength))
+            pcmChannelRef.current.send(safeBuffer)
             return
           }
 
