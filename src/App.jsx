@@ -152,7 +152,7 @@ function App() {
 
           // PCM DataChannelが開いていれば直送
           if (pcmChannelRef.current?.readyState === 'open') {
-            pcmChannelRef.current.send(int16.buffer)
+            pcmChannelRef.current.send(int16.buffer.slice(int16.byteOffset, int16.byteOffset + int16.byteLength))
             return
           }
 
