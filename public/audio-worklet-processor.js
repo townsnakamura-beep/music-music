@@ -1,15 +1,27 @@
 class PcmPlayerProcessor extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super()
     this._queue = []
     this._totalFrames = 0
     this._logCount = 0
+    this._inputSampleRate = options?.processorOptions?.inputSampleRate || 48000
+    this._outputSampleRate = options?.processorOptions?.outputSampleRate || 44100
+    this._ratio = this._inputSampleRate / this._outputSampleRate
     const MAX_FRAMES = 1920
     this.port.onmessage = (e) => {
       const int16 = new Int16Array(e.data)
-      const float32 = new Float32Array(int16.length)
-      for (let i = 0; i < int16.length; i++) {
-        float32[i] = int16[i] / 32768.0
+      // リサンプリング：inputSampleRate -> outputSampleRate
+      const inputLength = int16.length
+      const outputLength = Math.round(inputLength / this._ratio)
+      const float32 = new Float32Array(outputLength)
+      for (let i = 0; i < outputLength; i++) {
+        const srcIndex = i * this._ratio
+        const srcIndexFloor = Math.floor(srcIndex)
+        const srcIndexCeil = Math.min(srcIndexFloor + 1, inputLength - 1)
+        const frac = srcIndex - srcIndexFloor
+        const s0 = int16[srcIndexFloor] / 32768.0
+        const s1 = int16[srcIndexCeil] / 32768.0
+        float32[i] = s0 + (s1 - s0) * frac
       }
       this._queue.push(float32)
       this._totalFrames += float32.length
