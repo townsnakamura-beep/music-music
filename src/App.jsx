@@ -151,10 +151,10 @@ function App() {
           const int16 = new Int16Array(chunk.buffer || chunk)
 
           // PCM DataChannelが開いていれば直送
-          if (pcmChannelRef.current?.readyState === 'open') {
-            pcmChannelRef.current.send(int16.buffer.slice(int16.byteOffset, int16.byteOffset + int16.byteLength))
-            return
-          }
+          //if (pcmChannelRef.current?.readyState === 'open') {
+          //  pcmChannelRef.current.send(int16.buffer.slice(int16.byteOffset, int16.byteOffset + int16.byteLength))
+          //  return
+          //}
 
           // フォールバック：TrackGenerator経由
           const float32 = new Float32Array(int16.length)
