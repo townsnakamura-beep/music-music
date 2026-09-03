@@ -148,7 +148,6 @@ function App() {
           const receivedAt = performance.now()
           measureIpcLatency(receivedAt)
 
-          // Node.js Bufferから安全にInt16Arrayを作成
           const safeBuffer = chunk instanceof ArrayBuffer
             ? chunk
             : chunk.buffer
@@ -156,10 +155,9 @@ function App() {
               : new Uint8Array(chunk).buffer
           const int16 = new Int16Array(safeBuffer)
 
-          // byteOffsetデバッグ（最初の1回だけ）
           if (!window._pcmDebugDone) {
             window._pcmDebugDone = true
-            console.log('PCM chunk type:', chunk?.constructor?.name, 'byteLength:', int16.byteLength, 'frames:', int16.length)
+            console.log('PCM chunk type:', chunk?.constructor?.name, 'byteLength:', safeBuffer.byteLength, 'frames:', int16.length)
           }
 
           if (pcmChannelRef.current?.readyState === 'open') {
@@ -209,12 +207,18 @@ function App() {
 
   const setupPcmPlayback = async () => {
     try {
-      const ctx = new AudioContext({ sampleRate: 48000 })
+      // デバイスのネイティブレートで作成（リサンプリングノイズを防ぐ）
+      const ctx = new AudioContext()
       pcmAudioContextRef.current = ctx
       if (ctx.state === 'suspended') await ctx.resume()
 
       await ctx.audioWorklet.addModule('/audio-worklet-processor.js')
-      const workletNode = new AudioWorkletNode(ctx, 'pcm-player-processor')
+      const workletNode = new AudioWorkletNode(ctx, 'pcm-player-processor', {
+        processorOptions: {
+          inputSampleRate: 48000,
+          outputSampleRate: ctx.sampleRate,
+        }
+      })
       workletNode.connect(ctx.destination)
 
       workletNode.port.onmessage = (e) => {
@@ -224,8 +228,7 @@ function App() {
       }
 
       pcmWorkletNodeRef.current = workletNode
-
-      console.log(`🔊 PCM AudioWorklet再生準備完了 sampleRate:${ctx.sampleRate}`)
+      console.log(`🔊 PCM AudioWorklet再生準備完了 inputRate:48000 outputRate:${ctx.sampleRate}`)
       setUsePcmChannel(true)
 
       if (remoteAudioRef.current) {
