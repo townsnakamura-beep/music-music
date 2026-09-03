@@ -146,7 +146,6 @@ function App() {
               : new Uint8Array(chunk).buffer
           const int16 = new Int16Array(safeBuffer)
 
-          // TrackGenerator経由でWebRTCトラックに流す
           const float32 = new Float32Array(int16.length)
           for (let i = 0; i < int16.length; i++) {
             float32[i] = int16[i] / 32768.0
@@ -220,6 +219,19 @@ function App() {
         remoteAudioRef.current.muted = false
         remoteAudioRef.current.play().catch(e => console.warn('再生エラー:', e))
       }
+
+      // ジッターバッファを最小化
+      try {
+        pc.getReceivers().forEach(receiver => {
+          if (receiver.track.kind === 'audio') {
+            if ('jitterBufferTarget' in receiver) {
+              receiver.jitterBufferTarget = 0
+              console.log('✅ jitterBufferTarget = 0 設定')
+            }
+          }
+        })
+      } catch (e) {}
+
       setIsCallActive(true)
       setConnectionStatus('通話中')
     }
@@ -345,10 +357,6 @@ function App() {
       <h1 style={{ fontSize: '20px', marginBottom: '4px' }}>🎸 ミュージックミュージック</h1>
       <p style={{ fontSize: '12px', color: '#888', marginBottom: '16px' }}>URLを送って、一緒に弾こう。</p>
 
-      <p style={{ fontSize: '12px', color: '#48bb78', margin: '4px 0' }}>
-        🔬 WebRTCトラック確認モード（PCM DataChannel無効）
-      </p>
-
       {isElectron && (
         <p style={{ fontSize: '12px', color: useNative ? '#48bb78' : '#888', margin: '4px 0' }}>
           {useNative ? '✅ ネイティブオーディオ（低遅延モード）' : 'Web Audioモード'}
@@ -402,6 +410,9 @@ function App() {
                 <span style={{ fontWeight: 'bold', color: ipcLatency ? (ipcLatency < 15 ? '#48bb78' : '#ecc94b') : '#888' }}>
                   {ipcLatency != null ? ` 約${ipcLatency}ms` : ' 計測中...'}
                 </span>
+              </div>
+              <div style={{ fontSize: '10px', color: '#444', marginTop: '2px' }}>
+                ※ ASIOが音声をchunkとして送ってくる間隔（bufferFrames÷sampleRate）
               </div>
             </div>
           )}
