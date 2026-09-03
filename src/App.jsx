@@ -207,7 +207,6 @@ function App() {
 
   const setupPcmPlayback = async () => {
     try {
-      // デバイスのネイティブレートで作成（リサンプリングノイズを防ぐ）
       const ctx = new AudioContext()
       pcmAudioContextRef.current = ctx
       if (ctx.state === 'suspended') await ctx.resume()
@@ -314,6 +313,14 @@ function App() {
 
     dc.onmessage = (event) => {
       if (!isOfferSide && pcmWorkletNodeRef.current) {
+        // 最初の3パケットだけデータを確認
+        if (!window._pcmRecvCount) window._pcmRecvCount = 0
+        if (window._pcmRecvCount < 3) {
+          const int16 = new Int16Array(event.data)
+          const samples = Array.from(int16.slice(0, 8))
+          console.log(`📦 PCM受信 #${window._pcmRecvCount} byteLength:${event.data.byteLength} samples:`, samples)
+          window._pcmRecvCount++
+        }
         pcmWorkletNodeRef.current.port.postMessage(event.data, [event.data])
       }
     }
