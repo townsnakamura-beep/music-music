@@ -1,13 +1,21 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  // 既存
-  startAudio: () => ipcRenderer.invoke('start-audio'),
-  stopAudio: () => ipcRenderer.invoke('stop-audio'),
-  onAudioData: (callback) => ipcRenderer.on('audio-data', (event, data) => callback(data)),
+  // デバイス一覧取得
+  getAudioDevices: () => ipcRenderer.invoke('get-audio-devices'),
 
-  // 新規追加：ASIO出力
+  // 録音開始（deviceIdを指定）
+  startAudio: (deviceId) => ipcRenderer.invoke('start-audio', deviceId),
+  stopAudio: () => ipcRenderer.invoke('stop-audio'),
+
+  // PCMデータ受信
+  onAudioData: (callback) => {
+    ipcRenderer.removeAllListeners('audio-data')
+    ipcRenderer.on('audio-data', (event, data) => callback(data))
+  },
+
+  // ASIO出力
   startAudioOutput: () => ipcRenderer.invoke('start-audio-output'),
   stopAudioOutput: () => ipcRenderer.invoke('stop-audio-output'),
-  audioPlay: (pcmBuffer) => ipcRenderer.send('audio-play', pcmBuffer),
+  playAudio: (buffer) => ipcRenderer.send('audio-play', buffer),
 })
