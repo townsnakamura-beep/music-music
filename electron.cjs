@@ -24,7 +24,7 @@ function createWindow() {
 
   // ↓ ここが変更点
   if (app.isPackaged) {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+    mainWindow.loadFile(path.join(__dirname, 'dist/index.html'))
   } else {
     mainWindow.loadURL('http://localhost:5173').catch(() => {
       setTimeout(() => mainWindow.loadURL('http://localhost:5173'), 3000)
