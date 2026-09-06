@@ -5,11 +5,9 @@ let mainWindow
 let rtAudio = null
 let isStreaming = false
 
-// ── ASIO出力 ──────────────────────────────────────────────
 let rtAudioOut = null
 let isOutputStreaming = false
 let outputQueue = Buffer.alloc(0)
-// ──────────────────────────────────────────────────────────
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -27,21 +25,70 @@ function createWindow() {
   })
 }
 
-// ── ASIO入力 ──────────────────────────────────────────────
-ipcMain.handle('start-audio', () => {
+// デバイス一覧取得
+ipcMain.handle('get-audio-devices', () => {
+  const devices = []
+
+  // ASIOデバイスをスキャン
+  try {
+    const rt = new RtAudio(RtAudioApi.WINDOWS_ASIO)
+    const asioDevices = rt.getDevices()
+    asioDevices.forEach(d => {
+      if (d.inputChannels > 0) {
+        devices.push({
+          id: d.id,
+          name: d.name,
+          type: 'ASIO',
+          sampleRates: d.sampleRates,
+          preferredSampleRate: d.preferredSampleRate,
+        })
+      }
+    })
+    console.log(`ASIO デバイス ${devices.length}個検出`)
+  } catch (err) {
+    console.warn('ASIOスキャン失敗:', err.message)
+  }
+
+  // WDM（通常マイク）をスキャン
+  try {
+    const rt = new RtAudio(RtAudioApi.WINDOWS_DS)
+    const wdmDevices = rt.getDevices()
+    wdmDevices.forEach(d => {
+      if (d.inputChannels > 0 && d.isDefaultInput) {
+        devices.push({
+          id: d.id,
+          name: d.name + '（通常マイク）',
+          type: 'WDM',
+          sampleRates: d.sampleRates,
+          preferredSampleRate: d.preferredSampleRate,
+        })
+      }
+    })
+    console.log('WDM デフォルトデバイス追加')
+  } catch (err) {
+    console.warn('WDMスキャン失敗:', err.message)
+  }
+
+  return devices
+})
+
+// ASIO入力開始（deviceIdとtypeを受け取る）
+ipcMain.handle('start-audio', (event, deviceInfo) => {
   try {
     if (isStreaming) return
-    rtAudio = new RtAudio(RtAudioApi.WINDOWS_ASIO)
+    const { id, type, sampleRate } = deviceInfo || { id: 130, type: 'ASIO', sampleRate: 48000 }
+
+    const api = type === 'ASIO' ? RtAudioApi.WINDOWS_ASIO : RtAudioApi.WINDOWS_DS
+    rtAudio = new RtAudio(api)
     rtAudio.openStream(
       null,
-      { deviceId: 130, nChannels: 1 },
+      { deviceId: id, nChannels: 1 },
       2,
-      48000,
+      sampleRate,
       256,
       'MusicMusic',
       (pcmBuffer) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
-          // 純粋なArrayBufferとして送信（Bufferプールの参照を避ける）
           const ab = pcmBuffer.buffer.slice(
             pcmBuffer.byteOffset,
             pcmBuffer.byteOffset + pcmBuffer.byteLength
@@ -52,7 +99,7 @@ ipcMain.handle('start-audio', () => {
     )
     rtAudio.start()
     isStreaming = true
-    console.log('ASIO入力開始 ZOOM AMS-22 256samples@48000Hz')
+    console.log(`録音開始 deviceId:${id} type:${type} sampleRate:${sampleRate}`)
   } catch (err) {
     console.error('start-audio失敗:', err)
     throw err
@@ -70,7 +117,6 @@ ipcMain.handle('stop-audio', () => {
   } catch (err) {}
 })
 
-// ── ASIO出力 ──────────────────────────────────────────────
 ipcMain.handle('start-audio-output', () => {
   try {
     if (isOutputStreaming) return
@@ -94,7 +140,6 @@ ipcMain.handle('start-audio-output', () => {
     )
     rtAudioOut.start()
     isOutputStreaming = true
-    console.log('ASIO出力開始 ASIO4ALL v2 256samples@48000Hz')
   } catch (err) {
     console.error('start-audio-output失敗:', err)
     throw err
@@ -122,8 +167,6 @@ ipcMain.on('audio-play', (event, pcmBuffer) => {
     }
   }
 })
-
-// ──────────────────────────────────────────────────────────
 
 app.whenReady().then(createWindow)
 
