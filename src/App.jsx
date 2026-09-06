@@ -21,6 +21,11 @@ function App() {
   const [error, setError] = useState(null)
   const [useNative, setUseNative] = useState(false)
 
+  // デバイス選択
+  const [devices, setDevices] = useState([])
+  const [selectedDevice, setSelectedDevice] = useState(null)
+  const [deviceReady, setDeviceReady] = useState(false)
+
   const [latencyHistory, setLatencyHistory] = useState([])
   const [latestRtt, setLatestRtt] = useState(null)
   const [minRtt, setMinRtt] = useState(null)
@@ -38,6 +43,7 @@ function App() {
   const pingIntervalRef = useRef(null)
   const pendingPingsRef = useRef({})
   const latencyHistoryRef = useRef([])
+  const selectedDeviceRef = useRef(null)
 
   const isElectron = typeof window.electronAPI !== 'undefined'
 
@@ -57,7 +63,19 @@ function App() {
   }, [])
 
   useEffect(() => {
-    initAudio()
+    if (isElectron) {
+      // デバイス一覧を取得
+      window.electronAPI.getAudioDevices().then(devs => {
+        setDevices(devs)
+        if (devs.length === 1) {
+          // 1つだけなら自動選択
+          setSelectedDevice(devs[0])
+          selectedDeviceRef.current = devs[0]
+        }
+      }).catch(err => {
+        console.warn('デバイス取得失敗:', err)
+      })
+    }
 
     const keepAlive = setInterval(() => {
       fetch('https://music-music.onrender.com/ping').catch(() => {})
@@ -121,56 +139,59 @@ function App() {
     }
   }, [])
 
-  const initAudio = async () => {
-    if (isElectron && window.electronAPI) {
-      try {
-        const trackGenerator = new MediaStreamTrackGenerator({ kind: 'audio' })
-        trackGeneratorRef.current = trackGenerator
-        const stream = new MediaStream([trackGenerator])
-        localStreamRef.current = stream
+  const startAudioWithDevice = async (device) => {
+    try {
+      const trackGenerator = new MediaStreamTrackGenerator({ kind: 'audio' })
+      trackGeneratorRef.current = trackGenerator
+      const stream = new MediaStream([trackGenerator])
+      localStreamRef.current = stream
 
-        const writer = trackGenerator.writable.getWriter()
+      const writer = trackGenerator.writable.getWriter()
 
-        await window.electronAPI.startAudio()
-        setUseNative(true)
-        console.log('🚀 TrackGeneratorモード起動')
+      const sampleRate = device.preferredSampleRate || 48000
+      await window.electronAPI.startAudio({
+        id: device.id,
+        type: device.type,
+        sampleRate,
+      })
+      setUseNative(true)
+      setDeviceReady(true)
+      console.log(`🚀 録音開始: ${device.name} (${device.type}) ${sampleRate}Hz`)
 
-        window.electronAPI.onAudioData((chunk) => {
-          const receivedAt = performance.now()
-          measureIpcLatency(receivedAt)
+      window.electronAPI.onAudioData((chunk) => {
+        const receivedAt = performance.now()
+        measureIpcLatency(receivedAt)
 
-          const safeBuffer = chunk instanceof ArrayBuffer
-            ? chunk
-            : chunk.buffer
-              ? chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength)
-              : new Uint8Array(chunk).buffer
-          const int16 = new Int16Array(safeBuffer)
+        const safeBuffer = chunk instanceof ArrayBuffer
+          ? chunk
+          : chunk.buffer
+            ? chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength)
+            : new Uint8Array(chunk).buffer
+        const int16 = new Int16Array(safeBuffer)
 
-          const float32 = new Float32Array(int16.length)
-          for (let i = 0; i < int16.length; i++) {
-            float32[i] = int16[i] / 32768.0
-          }
-          const CHUNK_SIZE = 256
-          for (let offset = 0; offset < float32.length; offset += CHUNK_SIZE) {
-            const slice = float32.slice(offset, offset + CHUNK_SIZE)
-            const audioData = new AudioData({
-              format: 'f32',
-              sampleRate: 48000,
-              numberOfFrames: slice.length,
-              numberOfChannels: 1,
-              timestamp: (receivedAt + (offset / 48000) * 1000) * 1000,
-              data: slice,
-            })
-            writer.write(audioData).catch(() => {})
-          }
-        })
-
-      } catch (err) {
-        console.warn('TrackGenerator失敗、フォールバック:', err)
-        await initWebAudio()
-      }
-    } else {
+        const float32 = new Float32Array(int16.length)
+        for (let i = 0; i < int16.length; i++) {
+          float32[i] = int16[i] / 32768.0
+        }
+        const CHUNK_SIZE = 256
+        for (let offset = 0; offset < float32.length; offset += CHUNK_SIZE) {
+          const slice = float32.slice(offset, offset + CHUNK_SIZE)
+          const audioData = new AudioData({
+            format: 'f32',
+            sampleRate,
+            numberOfFrames: slice.length,
+            numberOfChannels: 1,
+            timestamp: (receivedAt + (offset / sampleRate) * 1000) * 1000,
+            data: slice,
+          })
+          writer.write(audioData).catch(() => {})
+        }
+      })
+    } catch (err) {
+      console.warn('録音開始失敗:', err)
+      // WDMフォールバック
       await initWebAudio()
+      setDeviceReady(true)
     }
   }
 
@@ -178,12 +199,25 @@ function App() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       localStreamRef.current = stream
+      console.log('🎤 ブラウザマイク使用')
     } catch (err) {
       console.warn('マイク取得失敗、無音トラックで代替:', err.message)
       const ctx = new AudioContext()
       const dst = ctx.createMediaStreamDestination()
       localStreamRef.current = dst.stream
     }
+  }
+
+  const handleDeviceSelect = async (device) => {
+    setSelectedDevice(device)
+    selectedDeviceRef.current = device
+    await startAudioWithDevice(device)
+  }
+
+  const handleNoBrowserStart = async () => {
+    // Electronなし or デバイスなし → ブラウザマイク
+    await initWebAudio()
+    setDeviceReady(true)
   }
 
   const setupPeerConnection = async (targetId) => {
@@ -219,19 +253,16 @@ function App() {
         remoteAudioRef.current.muted = false
         remoteAudioRef.current.play().catch(e => console.warn('再生エラー:', e))
       }
-
-      // ジッターバッファを最小化
       try {
         pc.getReceivers().forEach(receiver => {
           if (receiver.track.kind === 'audio') {
             if ('jitterBufferTarget' in receiver) {
-              receiver.jitterBufferTarget = 20
+              receiver.jitterBufferTarget = 0
               console.log('✅ jitterBufferTarget = 0 設定')
             }
           }
         })
       } catch (e) {}
-
       setIsCallActive(true)
       setConnectionStatus('通話中')
     }
@@ -309,14 +340,12 @@ function App() {
     try {
       await setupPeerConnection(peerId)
       const offer = await peerConnectionRef.current.createOffer()
-
       let sdp = offer.sdp
       sdp = sdp.replace(
         /a=fmtp:111 /g,
         'a=fmtp:111 ptime=10;minptime=10;useinbandfec=1;'
       )
       const modifiedOffer = { type: offer.type, sdp }
-
       await peerConnectionRef.current.setLocalDescription(modifiedOffer)
       socketRef.current.emit('offer', { to: peerId, offer: modifiedOffer })
     } catch (err) {
@@ -326,17 +355,14 @@ function App() {
 
   const renderGraph = () => {
     if (latencyHistory.length === 0) return null
-    const W = 320
-    const H = 80
+    const W = 320, H = 80
     const barW = Math.max(2, W / MAX_SAMPLES - 1)
     return (
       <svg width={W} height={H} style={{ display: 'block', margin: '8px auto' }}>
         {latencyHistory.map((v, i) => {
           const barH = Math.min(H, (v / 150) * H)
           const color = v < 50 ? '#48bb78' : v < 100 ? '#ecc94b' : '#fc8181'
-          return (
-            <rect key={i} x={i * (barW + 1)} y={H - barH} width={barW} height={barH} fill={color} rx={1} />
-          )
+          return <rect key={i} x={i * (barW + 1)} y={H - barH} width={barW} height={barH} fill={color} rx={1} />
         })}
         <line x1={0} y1={H - (50 / 150) * H} x2={W} y2={H - (50 / 150) * H} stroke="#48bb78" strokeWidth={0.5} strokeDasharray="3 3" opacity={0.6} />
         <line x1={0} y1={H - (100 / 150) * H} x2={W} y2={H - (100 / 150) * H} stroke="#fc8181" strokeWidth={0.5} strokeDasharray="3 3" opacity={0.6} />
@@ -352,6 +378,63 @@ function App() {
     color: v == null ? '#888' : v < good ? '#48bb78' : v < warn ? '#ecc94b' : '#fc8181'
   })
 
+  // ── デバイス選択画面 ──────────────────────────────────
+  if (isElectron && !deviceReady) {
+    return (
+      <div style={{ padding: '32px', fontFamily: 'sans-serif', maxWidth: '480px', margin: '0 auto' }}>
+        <h1 style={{ fontSize: '20px', marginBottom: '4px' }}>🎸 ミュージックミュージック</h1>
+        <p style={{ fontSize: '12px', color: '#888', marginBottom: '24px' }}>URLを送って、一緒に弾こう。</p>
+
+        <div style={{ border: '1px solid #333', borderRadius: '10px', padding: '20px', background: '#111', color: '#eee' }}>
+          <div style={{ fontWeight: 'bold', fontSize: '15px', marginBottom: '16px' }}>🎛 オーディオデバイスを選択</div>
+
+          {devices.length === 0 ? (
+            <div>
+              <p style={{ fontSize: '13px', color: '#aaa', marginBottom: '16px' }}>
+                ASIOデバイスが見つかりませんでした。<br />
+                通常のマイクで続けることができます。
+              </p>
+              <button
+                onClick={handleNoBrowserStart}
+                style={{ padding: '10px 20px', fontSize: '14px', cursor: 'pointer', background: '#2d6a4f', color: '#fff', border: 'none', borderRadius: '6px', width: '100%' }}
+              >
+                🎤 通常マイクで開始
+              </button>
+            </div>
+          ) : (
+            <div>
+              {devices.map(device => (
+                <button
+                  key={device.id}
+                  onClick={() => handleDeviceSelect(device)}
+                  style={{
+                    display: 'block', width: '100%', padding: '12px 16px',
+                    marginBottom: '8px', fontSize: '13px', cursor: 'pointer',
+                    background: selectedDevice?.id === device.id ? '#2d6a4f' : '#222',
+                    color: '#fff', border: '1px solid #444', borderRadius: '6px',
+                    textAlign: 'left',
+                  }}
+                >
+                  <div style={{ fontWeight: 'bold' }}>{device.name}</div>
+                  <div style={{ fontSize: '11px', color: '#aaa', marginTop: '2px' }}>
+                    {device.type} · {device.preferredSampleRate}Hz
+                  </div>
+                </button>
+              ))}
+              <button
+                onClick={handleNoBrowserStart}
+                style={{ display: 'block', width: '100%', padding: '10px 16px', marginTop: '8px', fontSize: '12px', cursor: 'pointer', background: 'transparent', color: '#888', border: '1px solid #333', borderRadius: '6px' }}
+              >
+                🎤 通常マイクを使う
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── メイン画面 ────────────────────────────────────────
   return (
     <div style={{ padding: '32px', fontFamily: 'sans-serif', maxWidth: '480px', margin: '0 auto' }}>
       <h1 style={{ fontSize: '20px', marginBottom: '4px' }}>🎸 ミュージックミュージック</h1>
@@ -359,7 +442,9 @@ function App() {
 
       {isElectron && (
         <p style={{ fontSize: '12px', color: useNative ? '#48bb78' : '#888', margin: '4px 0' }}>
-          {useNative ? '✅ ネイティブオーディオ（低遅延モード）' : 'Web Audioモード'}
+          {useNative
+            ? `✅ ${selectedDevice?.name || 'ネイティブオーディオ'}（低遅延モード）`
+            : '🎤 通常マイクモード'}
         </p>
       )}
 
@@ -410,9 +495,6 @@ function App() {
                 <span style={{ fontWeight: 'bold', color: ipcLatency ? (ipcLatency < 15 ? '#48bb78' : '#ecc94b') : '#888' }}>
                   {ipcLatency != null ? ` 約${ipcLatency}ms` : ' 計測中...'}
                 </span>
-              </div>
-              <div style={{ fontSize: '10px', color: '#444', marginTop: '2px' }}>
-                ※ ASIOが音声をchunkとして送ってくる間隔（bufferFrames÷sampleRate）
               </div>
             </div>
           )}
