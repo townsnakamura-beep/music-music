@@ -25,7 +25,6 @@ function createWindow() {
 
   if (app.isPackaged) {
     const indexPath = path.join(__dirname, 'dist/index.html')
-    console.log('Loading:', indexPath)
     mainWindow.loadFile(indexPath)
   } else {
     mainWindow.loadURL('http://localhost:5173').catch(() => {
@@ -34,7 +33,10 @@ function createWindow() {
   }
 }
 
-// デバイス一覧取得
+ipcMain.handle('close-window', () => {
+  if (mainWindow) mainWindow.close()
+})
+
 ipcMain.handle('get-audio-devices', () => {
   const devices = []
 
@@ -183,5 +185,4 @@ app.on('window-all-closed', () => {
   try {
     if (rtAudioOut && isOutputStreaming) { rtAudioOut.stop(); rtAudioOut.closeStream() }
   } catch (e) {}
-  if (process.platform !== 'darwin') app.quit()
-})
+  if (process.platform !==
