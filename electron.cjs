@@ -39,26 +39,41 @@ ipcMain.handle('close-window', () => {
 
 ipcMain.handle('get-audio-devices', () => {
   const devices = []
+
   try {
     const rt = new RtAudio(RtAudioApi.WINDOWS_ASIO)
     rt.getDevices().forEach(d => {
       if (d.inputChannels > 0) {
-        devices.push({ id: d.id, name: d.name, type: 'ASIO', sampleRates: d.sampleRates, preferredSampleRate: d.preferredSampleRate })
+        devices.push({
+          id: d.id,
+          name: d.name,
+          type: 'ASIO',
+          sampleRates: d.sampleRates,
+          preferredSampleRate: d.preferredSampleRate,
+        })
       }
     })
   } catch (err) {
     console.warn('ASIOスキャン失敗:', err.message)
   }
+
   try {
     const rt = new RtAudio(RtAudioApi.WINDOWS_DS)
     rt.getDevices().forEach(d => {
       if (d.inputChannels > 0 && d.isDefaultInput) {
-        devices.push({ id: d.id, name: d.name + '（通常マイク）', type: 'WDM', sampleRates: d.sampleRates, preferredSampleRate: d.preferredSampleRate })
+        devices.push({
+          id: d.id,
+          name: 'デフォルトマイク',
+          type: 'WDM',
+          sampleRates: d.sampleRates,
+          preferredSampleRate: d.preferredSampleRate,
+        })
       }
     })
   } catch (err) {
     console.warn('WDMスキャン失敗:', err.message)
   }
+
   return devices
 })
 
