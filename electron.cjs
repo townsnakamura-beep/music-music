@@ -39,45 +39,26 @@ ipcMain.handle('close-window', () => {
 
 ipcMain.handle('get-audio-devices', () => {
   const devices = []
-
   try {
     const rt = new RtAudio(RtAudioApi.WINDOWS_ASIO)
-    const asioDevices = rt.getDevices()
-    asioDevices.forEach(d => {
+    rt.getDevices().forEach(d => {
       if (d.inputChannels > 0) {
-        devices.push({
-          id: d.id,
-          name: d.name,
-          type: 'ASIO',
-          sampleRates: d.sampleRates,
-          preferredSampleRate: d.preferredSampleRate,
-        })
+        devices.push({ id: d.id, name: d.name, type: 'ASIO', sampleRates: d.sampleRates, preferredSampleRate: d.preferredSampleRate })
       }
     })
-    console.log(`ASIO デバイス ${devices.length}個検出`)
   } catch (err) {
     console.warn('ASIOスキャン失敗:', err.message)
   }
-
   try {
     const rt = new RtAudio(RtAudioApi.WINDOWS_DS)
-    const wdmDevices = rt.getDevices()
-    wdmDevices.forEach(d => {
+    rt.getDevices().forEach(d => {
       if (d.inputChannels > 0 && d.isDefaultInput) {
-        devices.push({
-          id: d.id,
-          name: d.name + '（通常マイク）',
-          type: 'WDM',
-          sampleRates: d.sampleRates,
-          preferredSampleRate: d.preferredSampleRate,
-        })
+        devices.push({ id: d.id, name: d.name + '（通常マイク）', type: 'WDM', sampleRates: d.sampleRates, preferredSampleRate: d.preferredSampleRate })
       }
     })
-    console.log('WDM デフォルトデバイス追加')
   } catch (err) {
     console.warn('WDMスキャン失敗:', err.message)
   }
-
   return devices
 })
 
@@ -85,29 +66,21 @@ ipcMain.handle('start-audio', (event, deviceInfo) => {
   try {
     if (isStreaming) return
     const { id, type, sampleRate } = deviceInfo || { id: 130, type: 'ASIO', sampleRate: 48000 }
-
     const api = type === 'ASIO' ? RtAudioApi.WINDOWS_ASIO : RtAudioApi.WINDOWS_DS
     rtAudio = new RtAudio(api)
     rtAudio.openStream(
       null,
       { deviceId: id, nChannels: 1 },
-      2,
-      sampleRate,
-      256,
-      'MusicMusic',
+      2, sampleRate, 256, 'MusicMusic',
       (pcmBuffer) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
-          const ab = pcmBuffer.buffer.slice(
-            pcmBuffer.byteOffset,
-            pcmBuffer.byteOffset + pcmBuffer.byteLength
-          )
+          const ab = pcmBuffer.buffer.slice(pcmBuffer.byteOffset, pcmBuffer.byteOffset + pcmBuffer.byteLength)
           mainWindow.webContents.send('audio-data', ab)
         }
       }
     )
     rtAudio.start()
     isStreaming = true
-    console.log(`録音開始 deviceId:${id} type:${type} sampleRate:${sampleRate}`)
   } catch (err) {
     console.error('start-audio失敗:', err)
     throw err
@@ -132,10 +105,7 @@ ipcMain.handle('start-audio-output', () => {
     rtAudioOut.openStream(
       { deviceId: 129, nChannels: 1 },
       null,
-      2,
-      48000,
-      256,
-      'MusicMusicOut',
+      2, 48000, 256, 'MusicMusicOut',
       (outputBuffer) => {
         const needed = outputBuffer.byteLength
         if (outputQueue.length >= needed) {
@@ -185,4 +155,5 @@ app.on('window-all-closed', () => {
   try {
     if (rtAudioOut && isOutputStreaming) { rtAudioOut.stop(); rtAudioOut.closeStream() }
   } catch (e) {}
-  if (process.platform !==
+  if (process.platform !== 'darwin') app.quit()
+})
