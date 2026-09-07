@@ -14,12 +14,13 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    frame: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: __dirname + '/preload.cjs',
     },
-    title: 'Music Music',
+    title: 'OTO',
   })
 
   if (app.isPackaged) {
