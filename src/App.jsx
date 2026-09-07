@@ -21,8 +21,8 @@ const S = {
   },
   titleBarTitle: { fontSize: '12px', color: '#555', letterSpacing: '3px' },
   closeBtn: {
-    width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    cursor: 'pointer', color: '#888', fontSize: '16px',
+    width: '48px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer', color: '#888', fontSize: '20px',
     WebkitAppRegion: 'no-drag',
   },
   body: { display: 'flex', flex: 1, overflow: 'hidden' },
@@ -468,6 +468,23 @@ function App() {
                 </div>
               </div>
             </div>
+
+            <div style={S.sec}>
+              <div style={S.secLabel}>ABOUT OTO</div>
+              <div style={S.card}>
+                {[
+                  ['レイテンシー', '最小2ms RTT（同一LAN）'],
+                  ['プロトコル', 'WebRTC Opus / P2P'],
+                  ['推奨環境', 'ASIO対応オーディオIF + 有線LAN'],
+                  ['バージョン', 'v0.1.0'],
+                ].map(([label, val], i, arr) => (
+                  <div key={label} style={i === arr.length - 1 ? S.rowLast : S.row}>
+                    <div style={S.rl}>{label}</div>
+                    <span style={S.rv}>{val}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -529,6 +546,25 @@ function App() {
                   )}
                 </div>
               </div>
+
+              {!peerId && !isCallActive && (
+                <div style={S.sec}>
+                  <div style={S.secLabel}>HOW TO SESSION</div>
+                  <div style={S.card}>
+                    {[
+                      ['① URLを共有', 'このアプリのURLを相手に送る'],
+                      ['② 相手が接続', '相手が同じURLを開いて待機'],
+                      ['③ CALL を押す', '相手が見つかったら発信する'],
+                      ['④ 一緒に弾く', '最低遅延でリアルタイムセッション'],
+                    ].map(([label, val], i, arr) => (
+                      <div key={label} style={i === arr.length - 1 ? S.rowLast : S.row}>
+                        <div style={S.rl}>{label}</div>
+                        <span style={S.rv}>{val}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {error && <div style={{ fontSize: '12px', color: '#e84040', marginBottom: '16px' }}>{error}</div>}
 
