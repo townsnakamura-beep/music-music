@@ -11,40 +11,55 @@ const ICE_SERVERS = {
 const MAX_SAMPLES = 60
 
 const S = {
-  wrap: { background: '#0d0d0d', minHeight: '100vh', display: 'flex', fontFamily: 'system-ui, sans-serif', color: '#fff' },
+  wrap: { background: '#0d0d0d', height: '100vh', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif', color: '#fff', overflow: 'hidden' },
+  titleBar: {
+    height: '36px', background: '#080808', borderBottom: '0.5px solid #1e1e1e',
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    paddingLeft: '16px', flexShrink: 0,
+    WebkitAppRegion: 'drag',
+    userSelect: 'none',
+  },
+  titleBarTitle: { fontSize: '12px', color: '#555', letterSpacing: '3px' },
+  closeBtn: {
+    width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer', color: '#888', fontSize: '16px',
+    WebkitAppRegion: 'no-drag',
+  },
+  body: { display: 'flex', flex: 1, overflow: 'hidden' },
   side: { width: '200px', background: '#080808', borderRight: '0.5px solid #1e1e1e', display: 'flex', flexDirection: 'column', flexShrink: 0 },
   brand: { padding: '28px 24px 20px', borderBottom: '0.5px solid #1e1e1e' },
   brandName: { fontSize: '32px', fontWeight: 500, color: '#fff', letterSpacing: '6px' },
-  brandTag: { fontSize: '10px', color: '#333', letterSpacing: '2px', marginTop: '4px' },
+  brandTag: { fontSize: '10px', color: '#444', letterSpacing: '2px', marginTop: '4px' },
   nav: { padding: '16px 0', flex: 1 },
   ni: (active) => ({
-    padding: '11px 24px', fontSize: '13px', color: active ? '#fff' : '#444',
+    padding: '11px 24px', fontSize: '13px', color: active ? '#fff' : '#555',
     cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px',
     borderLeft: active ? '2px solid #e84040' : '2px solid transparent',
     background: active ? '#111' : 'transparent',
   }),
   main: { flex: 1, padding: '32px 36px', overflowY: 'auto', maxWidth: '640px' },
   pgTitle: { fontSize: '22px', fontWeight: 500, color: '#fff', letterSpacing: '1px' },
-  pgSub: { fontSize: '10px', color: '#333', marginTop: '6px', letterSpacing: '2px', marginBottom: '32px' },
-  secLabel: { fontSize: '10px', color: '#333', letterSpacing: '2px', marginBottom: '12px' },
+  pgSub: { fontSize: '11px', color: '#aaa', marginTop: '6px', letterSpacing: '1px', marginBottom: '32px' },
+  secLabel: { fontSize: '10px', color: '#666', letterSpacing: '2px', marginBottom: '12px' },
   card: { background: '#111', borderRadius: '12px', border: '0.5px solid #1e1e1e', overflow: 'hidden', marginBottom: '10px' },
   row: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '0.5px solid #161616' },
   rowLast: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px' },
-  rl: { fontSize: '13px', color: '#aaa' },
-  rs: { fontSize: '11px', color: '#333', marginTop: '3px' },
+  rl: { fontSize: '13px', color: '#fff' },
+  rs: { fontSize: '11px', color: '#888', marginTop: '3px' },
+  rv: { fontSize: '12px', color: '#bbb' },
   badgeAsio: { fontSize: '10px', background: '#2a0f0f', color: '#e84040', padding: '3px 10px', borderRadius: '20px', letterSpacing: '.5px' },
   badgeOk: { fontSize: '10px', background: '#0f2a1a', color: '#3ecf8e', padding: '3px 10px', borderRadius: '20px', letterSpacing: '.5px' },
   badgeWarn: { fontSize: '10px', background: '#2a1f0f', color: '#e8a23a', padding: '3px 10px', borderRadius: '20px', letterSpacing: '.5px' },
   latBlock: { padding: '20px', background: '#111', borderRadius: '12px', border: '0.5px solid #1e1e1e', marginBottom: '10px' },
   latNum: { fontSize: '48px', fontWeight: 500, color: '#fff', lineHeight: 1 },
-  latUnit: { fontSize: '13px', color: '#333', marginBottom: '8px' },
-  latSub: { fontSize: '10px', color: '#333', letterSpacing: '.5px', marginBottom: '16px' },
+  latUnit: { fontSize: '13px', color: '#888', marginBottom: '8px' },
+  latSub: { fontSize: '10px', color: '#888', letterSpacing: '.5px', marginBottom: '16px' },
   bufRow: { display: 'flex', gap: '8px' },
   bb: (active) => ({
     flex: 1, padding: '10px 0',
     background: active ? '#1a0808' : '#0d0d0d',
     border: active ? '0.5px solid #e84040' : '0.5px solid #222',
-    borderRadius: '8px', color: active ? '#e84040' : '#444',
+    borderRadius: '8px', color: active ? '#e84040' : '#888',
     fontSize: '12px', cursor: 'pointer', textAlign: 'center', letterSpacing: '.5px',
   }),
   sec: { marginBottom: '28px' },
@@ -379,200 +394,61 @@ function App() {
   const rttColor = (v) => v == null ? '#555' : v < 50 ? '#3ecf8e' : v < 100 ? '#e8a23a' : '#e84040'
   const badge = bufferBadge()
 
+  const handleClose = () => {
+    if (isElectron && window.electronAPI?.closeWindow) {
+      window.electronAPI.closeWindow()
+    }
+  }
+
   // ── デバイス選択画面 ──────────────────────────────────
   if (isElectron && !deviceReady) {
     return (
       <div style={S.wrap}>
-        <div style={S.side}>
-          <div style={S.brand}>
-            <div style={S.brandName}>OTO</div>
-            <div style={S.brandTag}>SESSION PLATFORM</div>
-          </div>
+        <div style={S.titleBar}>
+          <span style={S.titleBarTitle}>OTO — SESSION PLATFORM</span>
+          <div style={S.closeBtn} onClick={handleClose}>✕</div>
         </div>
-        <div style={S.main}>
-          <div style={S.pgTitle}>AUDIO SETUP</div>
-          <div style={S.pgSub}>SELECT YOUR INPUT DEVICE</div>
-
-          <div style={S.sec}>
-            <div style={S.secLabel}>INPUT DEVICE</div>
-            <div style={S.card}>
-              {devices.length === 0 ? (
-                <div style={{ padding: '20px' }}>
-                  <div style={{ fontSize: '13px', color: '#666', marginBottom: '16px' }}>ASIOデバイスが見つかりませんでした</div>
-                  <button onClick={handleNoBrowserStart} style={{ width: '100%', padding: '12px', fontSize: '13px', cursor: 'pointer', background: '#1a0808', color: '#e84040', border: '0.5px solid #e84040', borderRadius: '8px' }}>
-                    通常マイクで開始
-                  </button>
-                </div>
-              ) : (
-                <>
-                  {devices.map((device, i) => (
-                    <div key={device.id} onClick={() => handleDeviceSelect(device)} style={{
-                      ...(i === devices.length - 1 ? S.rowLast : S.row),
-                      cursor: 'pointer',
-                      background: selectedDevice?.id === device.id ? '#1a1a1a' : 'transparent',
-                    }}>
-                      <div>
-                        <div style={S.rl}>{device.name}</div>
-                        <div style={S.rs}>{device.type} · {device.preferredSampleRate}Hz</div>
-                      </div>
-                      <span style={device.type === 'ASIO' ? S.badgeAsio : S.badgeWarn}>{device.type}</span>
-                    </div>
-                  ))}
-                  <div style={{ padding: '12px 20px', borderTop: '0.5px solid #161616' }}>
-                    <span style={{ fontSize: '12px', color: '#444', cursor: 'pointer' }} onClick={handleNoBrowserStart}>通常マイクを使う</span>
-                  </div>
-                </>
-              )}
+        <div style={S.body}>
+          <div style={S.side}>
+            <div style={S.brand}>
+              <div style={S.brandName}>OTO</div>
+              <div style={S.brandTag}>SESSION PLATFORM</div>
             </div>
           </div>
-
-          <div style={S.sec}>
-            <div style={S.secLabel}>BUFFER SIZE</div>
-            <div style={S.latBlock}>
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', marginBottom: '6px' }}>
-                <span style={S.latNum}>{latencyEstimateMs()}</span>
-                <span style={S.latUnit}>ms</span>
-                <span style={{ ...badge.style, marginLeft: '8px', marginBottom: '8px' }}>{badge.text}</span>
-              </div>
-              <div style={S.latSub}>推定片道遅延（ASIOバッファ + 処理）</div>
-              <div style={S.bufRow}>
-                {[64, 128, 256, 512].map(size => (
-                  <div key={size} style={S.bb(bufferSize === size)} onClick={() => setBufferSize(size)}>{size}</div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // ── メイン画面 ────────────────────────────────────────
-  return (
-    <div style={S.wrap}>
-      <div style={S.side}>
-        <div style={S.brand}>
-          <div style={S.brandName}>OTO</div>
-          <div style={S.brandTag}>SESSION PLATFORM</div>
-        </div>
-        <div style={S.nav}>
-          <div style={S.ni(page === 'session')} onClick={() => setPage('session')}>セッション</div>
-          <div style={S.ni(page === 'settings')} onClick={() => setPage('settings')}>
-            オーディオ設定
-            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e84040', marginLeft: 'auto' }} />
-          </div>
-          <div style={S.ni(page === 'status')} onClick={() => setPage('status')}>接続状態</div>
-        </div>
-      </div>
-
-      <div style={S.main}>
-
-        {page === 'session' && (
-          <>
-            <div style={S.pgTitle}>SESSION</div>
-            <div style={S.pgSub}>URL を送って、一緒に弾こう。</div>
-
-            <div style={S.sec}>
-              <div style={S.secLabel}>CONNECTION</div>
-              <div style={S.card}>
-                <div style={S.row}>
-                  <div style={S.rl}>状態</div>
-                  <span style={isCallActive ? S.badgeOk : S.badgeWarn}>{isCallActive ? '通話中' : connectionStatus}</span>
-                </div>
-                <div style={S.row}>
-                  <div style={S.rl}>自分のID</div>
-                  <span style={{ fontSize: '11px', color: '#444' }}>{myId || '...'}</span>
-                </div>
-                {peerId && (
-                  <div style={S.row}>
-                    <div style={S.rl}>相手のID</div>
-                    <span style={{ fontSize: '11px', color: '#444' }}>{peerId}</span>
-                  </div>
-                )}
-                {isElectron && (
-                  <div style={S.rowLast}>
-                    <div style={S.rl}>オーディオ</div>
-                    <span style={useNative ? S.badgeAsio : S.badgeWarn}>{useNative ? (selectedDevice?.name || 'ASIO') : 'マイク'}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {error && <div style={{ fontSize: '12px', color: '#e84040', marginBottom: '16px' }}>{error}</div>}
-
-            {peerId && !isCallActive && (
-              <div style={S.sec}>
-                <button onClick={callPeer} style={{
-                  width: '100%', padding: '14px', fontSize: '14px', cursor: 'pointer',
-                  background: '#1a0808', color: '#e84040', border: '0.5px solid #e84040',
-                  borderRadius: '10px', letterSpacing: '1px',
-                }}>
-                  CALL →
-                </button>
-              </div>
-            )}
-
-            {isCallActive && (
-              <div style={S.sec}>
-                <div style={S.secLabel}>LATENCY — DataChannel RTT</div>
-                <div style={S.latBlock}>
-                  <div style={{ display: 'flex', gap: '24px', marginBottom: '16px' }}>
-                    <div>
-                      <div style={{ fontSize: '48px', fontWeight: 500, color: rttColor(latestRtt), lineHeight: 1 }}>{latestRtt != null ? latestRtt : '--'}</div>
-                      <div style={{ fontSize: '10px', color: '#333', letterSpacing: '1px', marginTop: '4px' }}>LATEST RTT (ms)</div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', paddingBottom: '20px' }}>
-                      {[['AVG', avgRtt], ['MIN', minRtt], ['MAX', maxRtt]].map(([label, val]) => (
-                        <div key={label} style={{ textAlign: 'center' }}>
-                          <div style={{ fontSize: '22px', fontWeight: 500, color: rttColor(val) }}>{val != null ? val : '--'}</div>
-                          <div style={{ fontSize: '10px', color: '#333', letterSpacing: '1px' }}>{label}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  {renderGraph()}
-                  <div style={{ fontSize: '10px', color: '#333', marginTop: '8px', marginBottom: '12px' }}>
-                    緑 &lt;50ms ／ 黄 50〜100ms ／ 赤 &gt;100ms ／ RTT = 往復（片道はおよそ÷2）
-                  </div>
-                  <button onClick={measuring ? stopMeasuring : startMeasuring} style={{
-                    padding: '8px 20px', fontSize: '12px', cursor: 'pointer',
-                    background: measuring ? '#1a1a1a' : '#1a0808',
-                    color: measuring ? '#666' : '#e84040',
-                    border: '0.5px solid ' + (measuring ? '#333' : '#e84040'),
-                    borderRadius: '8px', letterSpacing: '.5px',
-                  }}>
-                    {measuring ? '⏹ 計測停止' : '▶ 計測開始'}
-                  </button>
-                </div>
-                {useNative && ipcLatency != null && (
-                  <div style={{ fontSize: '12px', color: '#444', marginTop: '8px' }}>
-                    ASIOチャンク間隔：<span style={{ color: ipcLatency < 15 ? '#3ecf8e' : '#e8a23a' }}>約{ipcLatency}ms</span>
-                  </div>
-                )}
-              </div>
-            )}
-          </>
-        )}
-
-        {page === 'settings' && (
-          <>
-            <div style={S.pgTitle}>AUDIO SETTINGS</div>
-            <div style={S.pgSub}>CONFIGURE YOUR INTERFACE FOR MINIMUM LATENCY</div>
+          <div style={S.main}>
+            <div style={S.pgTitle}>AUDIO SETUP</div>
+            <div style={S.pgSub}>デバイスを選択してセッションを開始</div>
 
             <div style={S.sec}>
               <div style={S.secLabel}>INPUT DEVICE</div>
               <div style={S.card}>
-                <div style={S.row}>
-                  <div>
-                    <div style={S.rl}>デバイス</div>
-                    <div style={S.rs}>{selectedDevice?.name || 'マイク'}</div>
+                {devices.length === 0 ? (
+                  <div style={{ padding: '20px' }}>
+                    <div style={{ fontSize: '13px', color: '#888', marginBottom: '16px' }}>ASIOデバイスが見つかりませんでした</div>
+                    <button onClick={handleNoBrowserStart} style={{ width: '100%', padding: '12px', fontSize: '13px', cursor: 'pointer', background: '#1a0808', color: '#e84040', border: '0.5px solid #e84040', borderRadius: '8px' }}>
+                      通常マイクで開始
+                    </button>
                   </div>
-                  <span style={useNative ? S.badgeAsio : S.badgeWarn}>{useNative ? 'ASIO' : 'WDM'}</span>
-                </div>
-                <div style={S.rowLast}>
-                  <div style={S.rl}>サンプリングレート</div>
-                  <span style={{ fontSize: '12px', color: '#444', letterSpacing: '1px' }}>{selectedDevice?.preferredSampleRate || 48000} Hz</span>
-                </div>
+                ) : (
+                  <>
+                    {devices.map((device, i) => (
+                      <div key={device.id} onClick={() => handleDeviceSelect(device)} style={{
+                        ...(i === devices.length - 1 ? S.rowLast : S.row),
+                        cursor: 'pointer',
+                        background: selectedDevice?.id === device.id ? '#1a1a1a' : 'transparent',
+                      }}>
+                        <div>
+                          <div style={S.rl}>{device.name}</div>
+                          <div style={S.rs}>{device.type} · {device.preferredSampleRate}Hz</div>
+                        </div>
+                        <span style={device.type === 'ASIO' ? S.badgeAsio : S.badgeWarn}>{device.type}</span>
+                      </div>
+                    ))}
+                    <div style={{ padding: '12px 20px', borderTop: '0.5px solid #161616' }}>
+                      <span style={{ fontSize: '12px', color: '#555', cursor: 'pointer' }} onClick={handleNoBrowserStart}>通常マイクを使う</span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -592,65 +468,222 @@ function App() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
-            <div style={S.sec}>
-              <div style={S.secLabel}>VOLUME</div>
-              <div style={S.card}>
-                <div style={S.row}>
-                  <div style={S.rl}>入力ゲイン</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <Meter bars={meterBars} />
-                    <input type="range" min="0" max="100" value={inputGain}
-                      onChange={e => setInputGain(Number(e.target.value))}
-                      style={{ width: '80px', accentColor: '#e84040' }} />
-                    <span style={{ fontSize: '11px', color: '#444', minWidth: '32px' }}>{inputGain}%</span>
+  // ── メイン画面 ────────────────────────────────────────
+  return (
+    <div style={S.wrap}>
+      <div style={S.titleBar}>
+        <span style={S.titleBarTitle}>OTO — SESSION PLATFORM</span>
+        <div style={S.closeBtn} onClick={handleClose}>✕</div>
+      </div>
+      <div style={S.body}>
+        <div style={S.side}>
+          <div style={S.brand}>
+            <div style={S.brandName}>OTO</div>
+            <div style={S.brandTag}>SESSION PLATFORM</div>
+          </div>
+          <div style={S.nav}>
+            <div style={S.ni(page === 'session')} onClick={() => setPage('session')}>セッション</div>
+            <div style={S.ni(page === 'settings')} onClick={() => setPage('settings')}>
+              オーディオ設定
+              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e84040', marginLeft: 'auto' }} />
+            </div>
+            <div style={S.ni(page === 'status')} onClick={() => setPage('status')}>接続状態</div>
+          </div>
+        </div>
+
+        <div style={S.main}>
+
+          {page === 'session' && (
+            <>
+              <div style={S.pgTitle}>SESSION</div>
+              <div style={S.pgSub}>URLを送って、一緒に弾こう。</div>
+
+              <div style={S.sec}>
+                <div style={S.secLabel}>CONNECTION</div>
+                <div style={S.card}>
+                  <div style={S.row}>
+                    <div style={S.rl}>状態</div>
+                    <span style={isCallActive ? S.badgeOk : S.badgeWarn}>{isCallActive ? '通話中' : connectionStatus}</span>
                   </div>
-                </div>
-                <div style={S.row}>
-                  <div style={S.rl}>出力音量</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <input type="range" min="0" max="100" value={outputVolume}
-                      onChange={e => setOutputVolume(Number(e.target.value))}
-                      style={{ width: '80px', accentColor: '#e84040' }} />
-                    <span style={{ fontSize: '11px', color: '#444', minWidth: '32px' }}>{outputVolume}%</span>
+                  <div style={S.row}>
+                    <div style={S.rl}>自分のID</div>
+                    <span style={S.rv}>{myId || '...'}</span>
                   </div>
-                </div>
-                <div style={S.rowLast}>
-                  <div>
-                    <div style={S.rl}>自分の音をモニター</div>
-                    <div style={S.rs}>自分の演奏をスピーカーで聞く</div>
-                  </div>
-                  <Toggle checked={monitor} onChange={e => setMonitor(e.target.checked)} />
+                  {peerId && (
+                    <div style={S.row}>
+                      <div style={S.rl}>相手のID</div>
+                      <span style={S.rv}>{peerId}</span>
+                    </div>
+                  )}
+                  {isElectron && (
+                    <div style={S.rowLast}>
+                      <div style={S.rl}>オーディオ</div>
+                      <span style={useNative ? S.badgeAsio : S.badgeWarn}>{useNative ? (selectedDevice?.name || 'ASIO') : 'マイク'}</span>
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
-          </>
-        )}
 
-        {page === 'status' && (
-          <>
-            <div style={S.pgTitle}>CONNECTION STATUS</div>
-            <div style={S.pgSub}>NETWORK AND SESSION INFO</div>
-            <div style={S.sec}>
-              <div style={S.card}>
-                {[
-                  ['シグナリングサーバー', connectionStatus.includes('エラー') ? '❌ エラー' : '✅ 接続中'],
-                  ['WebRTC', isCallActive ? '✅ 通話中' : '待機中'],
-                  ['自分のID', myId || '...'],
-                  ['相手のID', peerId || 'なし'],
-                  ['RTT（最新）', latestRtt != null ? latestRtt + ' ms' : '--'],
-                  ['RTT（平均）', avgRtt != null ? avgRtt + ' ms' : '--'],
-                ].map(([label, val], i, arr) => (
-                  <div key={label} style={i === arr.length - 1 ? S.rowLast : S.row}>
-                    <div style={S.rl}>{label}</div>
-                    <span style={{ fontSize: '12px', color: '#555' }}>{val}</span>
+              {error && <div style={{ fontSize: '12px', color: '#e84040', marginBottom: '16px' }}>{error}</div>}
+
+              {peerId && !isCallActive && (
+                <div style={S.sec}>
+                  <button onClick={callPeer} style={{
+                    width: '100%', padding: '14px', fontSize: '14px', cursor: 'pointer',
+                    background: '#1a0808', color: '#e84040', border: '0.5px solid #e84040',
+                    borderRadius: '10px', letterSpacing: '1px',
+                  }}>
+                    CALL →
+                  </button>
+                </div>
+              )}
+
+              {isCallActive && (
+                <div style={S.sec}>
+                  <div style={S.secLabel}>LATENCY — DataChannel RTT</div>
+                  <div style={S.latBlock}>
+                    <div style={{ display: 'flex', gap: '24px', marginBottom: '16px' }}>
+                      <div>
+                        <div style={{ fontSize: '48px', fontWeight: 500, color: rttColor(latestRtt), lineHeight: 1 }}>{latestRtt != null ? latestRtt : '--'}</div>
+                        <div style={{ fontSize: '10px', color: '#888', letterSpacing: '1px', marginTop: '4px' }}>LATEST RTT (ms)</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', paddingBottom: '20px' }}>
+                        {[['AVG', avgRtt], ['MIN', minRtt], ['MAX', maxRtt]].map(([label, val]) => (
+                          <div key={label} style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '22px', fontWeight: 500, color: rttColor(val) }}>{val != null ? val : '--'}</div>
+                            <div style={{ fontSize: '10px', color: '#888', letterSpacing: '1px' }}>{label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {renderGraph()}
+                    <div style={{ fontSize: '10px', color: '#777', marginTop: '8px', marginBottom: '12px' }}>
+                      緑 &lt;50ms ／ 黄 50〜100ms ／ 赤 &gt;100ms ／ RTT = 往復（片道はおよそ÷2）
+                    </div>
+                    <button onClick={measuring ? stopMeasuring : startMeasuring} style={{
+                      padding: '8px 20px', fontSize: '12px', cursor: 'pointer',
+                      background: measuring ? '#1a1a1a' : '#1a0808',
+                      color: measuring ? '#666' : '#e84040',
+                      border: '0.5px solid ' + (measuring ? '#333' : '#e84040'),
+                      borderRadius: '8px', letterSpacing: '.5px',
+                    }}>
+                      {measuring ? '⏹ 計測停止' : '▶ 計測開始'}
+                    </button>
                   </div>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
+                  {useNative && ipcLatency != null && (
+                    <div style={{ fontSize: '12px', color: '#888', marginTop: '8px' }}>
+                      ASIOチャンク間隔：<span style={{ color: ipcLatency < 15 ? '#3ecf8e' : '#e8a23a' }}>約{ipcLatency}ms</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
 
+          {page === 'settings' && (
+            <>
+              <div style={S.pgTitle}>AUDIO SETTINGS</div>
+              <div style={S.pgSub}>最低遅延のためにインターフェイスを設定</div>
+
+              <div style={S.sec}>
+                <div style={S.secLabel}>INPUT DEVICE</div>
+                <div style={S.card}>
+                  <div style={S.row}>
+                    <div>
+                      <div style={S.rl}>デバイス</div>
+                      <div style={S.rs}>{selectedDevice?.name || 'マイク'}</div>
+                    </div>
+                    <span style={useNative ? S.badgeAsio : S.badgeWarn}>{useNative ? 'ASIO' : 'WDM'}</span>
+                  </div>
+                  <div style={S.rowLast}>
+                    <div style={S.rl}>サンプリングレート</div>
+                    <span style={S.rv}>{selectedDevice?.preferredSampleRate || 48000} Hz</span>
+                  </div>
+                </div>
+              </div>
+
+              <div style={S.sec}>
+                <div style={S.secLabel}>BUFFER SIZE</div>
+                <div style={S.latBlock}>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', marginBottom: '6px' }}>
+                    <span style={S.latNum}>{latencyEstimateMs()}</span>
+                    <span style={S.latUnit}>ms</span>
+                    <span style={{ ...badge.style, marginLeft: '8px', marginBottom: '8px' }}>{badge.text}</span>
+                  </div>
+                  <div style={S.latSub}>推定片道遅延（ASIOバッファ + 処理）</div>
+                  <div style={S.bufRow}>
+                    {[64, 128, 256, 512].map(size => (
+                      <div key={size} style={S.bb(bufferSize === size)} onClick={() => setBufferSize(size)}>{size}</div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div style={S.sec}>
+                <div style={S.secLabel}>VOLUME</div>
+                <div style={S.card}>
+                  <div style={S.row}>
+                    <div style={S.rl}>入力ゲイン</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <Meter bars={meterBars} />
+                      <input type="range" min="0" max="100" value={inputGain}
+                        onChange={e => setInputGain(Number(e.target.value))}
+                        style={{ width: '80px', accentColor: '#e84040' }} />
+                      <span style={S.rv}>{inputGain}%</span>
+                    </div>
+                  </div>
+                  <div style={S.row}>
+                    <div style={S.rl}>出力音量</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <input type="range" min="0" max="100" value={outputVolume}
+                        onChange={e => setOutputVolume(Number(e.target.value))}
+                        style={{ width: '80px', accentColor: '#e84040' }} />
+                      <span style={S.rv}>{outputVolume}%</span>
+                    </div>
+                  </div>
+                  <div style={S.rowLast}>
+                    <div>
+                      <div style={S.rl}>自分の音をモニター</div>
+                      <div style={S.rs}>自分の演奏をスピーカーで聞く</div>
+                    </div>
+                    <Toggle checked={monitor} onChange={e => setMonitor(e.target.checked)} />
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {page === 'status' && (
+            <>
+              <div style={S.pgTitle}>CONNECTION STATUS</div>
+              <div style={S.pgSub}>ネットワークとセッションの状態</div>
+              <div style={S.sec}>
+                <div style={S.card}>
+                  {[
+                    ['シグナリングサーバー', connectionStatus.includes('エラー') ? '❌ エラー' : '✅ 接続中'],
+                    ['WebRTC', isCallActive ? '✅ 通話中' : '待機中'],
+                    ['自分のID', myId || '...'],
+                    ['相手のID', peerId || 'なし'],
+                    ['RTT（最新）', latestRtt != null ? latestRtt + ' ms' : '--'],
+                    ['RTT（平均）', avgRtt != null ? avgRtt + ' ms' : '--'],
+                  ].map(([label, val], i, arr) => (
+                    <div key={label} style={i === arr.length - 1 ? S.rowLast : S.row}>
+                      <div style={S.rl}>{label}</div>
+                      <span style={S.rv}>{val}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+        </div>
       </div>
       <audio ref={remoteAudioRef} autoPlay playsInline />
     </div>
