@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('electronAPI', {
   getAudioDevices: () => ipcRenderer.invoke('get-audio-devices'),
+  getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
   startAudio: (deviceId) => ipcRenderer.invoke('start-audio', deviceId),
   stopAudio: () => ipcRenderer.invoke('stop-audio'),
   onAudioData: (callback) => {
