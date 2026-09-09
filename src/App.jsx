@@ -16,14 +16,12 @@ const S = {
     height: '36px', background: '#080808', borderBottom: '0.5px solid #1e1e1e',
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     paddingLeft: '16px', flexShrink: 0,
-    WebkitAppRegion: 'drag',
-    userSelect: 'none',
+    WebkitAppRegion: 'drag', userSelect: 'none',
   },
   titleBarTitle: { fontSize: '12px', color: '#555', letterSpacing: '3px' },
   closeBtn: {
     width: '48px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    cursor: 'pointer', color: '#888', fontSize: '20px',
-    WebkitAppRegion: 'no-drag',
+    cursor: 'pointer', color: '#888', fontSize: '20px', WebkitAppRegion: 'no-drag',
   },
   body: { display: 'flex', flex: 1, overflow: 'hidden' },
   side: { width: '200px', background: '#080808', borderRight: '0.5px solid #1e1e1e', display: 'flex', flexDirection: 'column', flexShrink: 0 },
@@ -100,6 +98,168 @@ function Meter({ bars }) {
   )
 }
 
+// QUALITYモニターのドット
+function QDot({ color }) {
+  const colors = { green: '#3ecf8e', yellow: '#e8a23a', red: '#e84040' }
+  return <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: colors[color] || '#333', flexShrink: 0 }} />
+}
+
+// QUALITYモニター
+function QualityMonitor({ rtt, useNative, systemInfo }) {
+  const [open, setOpen] = useState(null)
+
+  const netScore = () => {
+    if (!rtt) return 'yellow'
+    if (rtt < 30 && systemInfo?.isWired) return 'green'
+    if (rtt < 80) return 'yellow'
+    return 'red'
+  }
+
+  const audScore = () => {
+    if (useNative) return 'green'
+    return 'red'
+  }
+
+  const pcScore = () => {
+    if (!systemInfo) return 'yellow'
+    if (systemInfo.cpuPercent < 50) return 'green'
+    if (systemInfo.cpuPercent < 80) return 'yellow'
+    return 'red'
+  }
+
+  const scores = [
+    { id: 'net', label: 'NET', color: netScore() },
+    { id: 'aud', label: 'AUDIO', color: audScore() },
+    { id: 'pc', label: 'PC', color: pcScore() },
+  ]
+
+  const toggle = (id) => setOpen(open === id ? null : id)
+
+  const tipStyle = (type) => ({
+    borderRadius: '8px', padding: '10px 14px', fontSize: '12px',
+    display: 'flex', gap: '8px', alignItems: 'flex-start', marginBottom: '8px',
+    background: type === 'ok' ? '#001a0d' : type === 'warn' ? '#1a1200' : '#1a0000',
+    border: '0.5px solid ' + (type === 'ok' ? '#003a1a' : type === 'warn' ? '#3a2a00' : '#3a0000'),
+    color: type === 'ok' ? '#3ecf8e' : type === 'warn' ? '#e8a23a' : '#e84040',
+  })
+
+  return (
+    <div style={S.sec}>
+      <div style={S.secLabel}>SESSION QUALITY</div>
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+        {scores.map(s => (
+          <div key={s.id} onClick={() => toggle(s.id)} style={{
+            flex: 1, background: open === s.id ? '#1a1a1a' : '#111',
+            border: '0.5px solid ' + (open === s.id ? '#e84040' : '#1e1e1e'),
+            borderRadius: '12px', padding: '18px 12px', textAlign: 'center', cursor: 'pointer',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '10px' }}>
+              <QDot color={s.color} />
+            </div>
+            <div style={{ fontSize: '10px', color: '#555', letterSpacing: '1.5px' }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {open === 'net' && (
+        <div style={{ background: '#111', border: '0.5px solid #1e1e1e', borderRadius: '12px', padding: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 500, color: '#fff' }}>
+                <QDot color={netScore()} /> ネットワーク
+              </div>
+              <div style={{ fontSize: '11px', color: '#666', marginTop: '3px' }}>
+                {systemInfo?.isWired ? '有線LAN接続' : systemInfo?.isWifi ? 'WiFi接続を検出' : '接続方式不明'}
+              </div>
+            </div>
+            <div style={{ cursor: 'pointer', color: '#555', fontSize: '18px' }} onClick={() => setOpen(null)}>✕</div>
+          </div>
+          {!systemInfo?.isWired && (
+            <div style={tipStyle('warn')}>
+              有線LANに切り替えると遅延が約20〜30ms改善します
+            </div>
+          )}
+          {systemInfo?.isWired && (
+            <div style={tipStyle('ok')}>
+              有線LAN接続です。ネットワーク環境は良好です
+            </div>
+          )}
+          <div style={S.row}><span style={S.rl}>接続方式</span><span style={S.rv}>{systemInfo?.isWired ? '有線LAN' : systemInfo?.isWifi ? 'WiFi' : '不明'}</span></div>
+          <div style={S.row}><span style={S.rl}>RTT（往復遅延）</span><span style={S.rv}>{rtt != null ? rtt + 'ms' : '未計測'}</span></div>
+          <div style={S.rowLast}><span style={S.rl}>推定片道遅延</span><span style={S.rv}>{rtt != null ? Math.round(rtt / 2) + 'ms' : '未計測'}</span></div>
+        </div>
+      )}
+
+      {open === 'aud' && (
+        <div style={{ background: '#111', border: '0.5px solid #1e1e1e', borderRadius: '12px', padding: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 500, color: '#fff' }}>
+                <QDot color={audScore()} /> オーディオ
+              </div>
+              <div style={{ fontSize: '11px', color: '#666', marginTop: '3px' }}>
+                {useNative ? 'ASIO使用中' : '通常マイク（WDM）使用中'}
+              </div>
+            </div>
+            <div style={{ cursor: 'pointer', color: '#555', fontSize: '18px' }} onClick={() => setOpen(null)}>✕</div>
+          </div>
+          {!useNative && (
+            <>
+              <div style={tipStyle('red')}>
+                WDMは遅延が大きくなります。オーディオIFの接続を推奨します
+              </div>
+              <div style={tipStyle('warn')}>
+                おすすめ：ZOOM AMS-22 / Focusrite Scarlett など
+              </div>
+            </>
+          )}
+          {useNative && (
+            <div style={tipStyle('ok')}>
+              ASIOドライバーで動作中です。最低遅延を実現しています
+            </div>
+          )}
+          <div style={S.row}><span style={S.rl}>ドライバー</span><span style={S.rv}>{useNative ? 'ASIO' : 'WDM'}</span></div>
+          <div style={S.rowLast}><span style={S.rl}>状態</span><span style={S.rv}>{useNative ? '最適' : '改善推奨'}</span></div>
+        </div>
+      )}
+
+      {open === 'pc' && (
+        <div style={{ background: '#111', border: '0.5px solid #1e1e1e', borderRadius: '12px', padding: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 500, color: '#fff' }}>
+                <QDot color={pcScore()} /> PC
+              </div>
+              <div style={{ fontSize: '11px', color: '#666', marginTop: '3px' }}>
+                {systemInfo ? `CPU ${systemInfo.cpuPercent}% / 空きメモリ ${systemInfo.freeMemGB}GB` : '取得中...'}
+              </div>
+            </div>
+            <div style={{ cursor: 'pointer', color: '#555', fontSize: '18px' }} onClick={() => setOpen(null)}>✕</div>
+          </div>
+          {systemInfo?.cpuPercent < 50 && (
+            <div style={tipStyle('ok')}>
+              CPU・メモリともに問題ありません
+            </div>
+          )}
+          {systemInfo?.cpuPercent >= 50 && systemInfo?.cpuPercent < 80 && (
+            <div style={tipStyle('warn')}>
+              CPU使用率が高めです。他のアプリを閉じると改善します
+            </div>
+          )}
+          {systemInfo?.cpuPercent >= 80 && (
+            <div style={tipStyle('red')}>
+              CPU使用率が高すぎます。音が途切れる可能性があります
+            </div>
+          )}
+          <div style={S.row}><span style={S.rl}>CPU使用率</span><span style={S.rv}>{systemInfo ? systemInfo.cpuPercent + '%' : '...'}</span></div>
+          <div style={S.row}><span style={S.rl}>空きメモリ</span><span style={S.rv}>{systemInfo ? systemInfo.freeMemGB + 'GB' : '...'}</span></div>
+          <div style={S.rowLast}><span style={S.rl}>OS</span><span style={S.rv}>{systemInfo?.platform === 'win32' ? 'Windows' : systemInfo?.platform || '...'}</span></div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function App() {
   const [page, setPage] = useState('session')
   const [connectionStatus, setConnectionStatus] = useState('未接続')
@@ -128,6 +288,7 @@ function App() {
   const [avgRtt, setAvgRtt] = useState(null)
   const [ipcLatency, setIpcLatency] = useState(null)
   const [measuring, setMeasuring] = useState(false)
+  const [systemInfo, setSystemInfo] = useState(null)
 
   const socketRef = useRef(null)
   const peerConnectionRef = useRef(null)
@@ -169,6 +330,20 @@ function App() {
     }, 60)
     return () => clearInterval(id)
   }, [])
+
+  // システム情報を定期取得
+  useEffect(() => {
+    if (!isElectron) return
+    const fetchInfo = async () => {
+      try {
+        const info = await window.electronAPI.getSystemInfo()
+        setSystemInfo(info)
+      } catch (e) {}
+    }
+    fetchInfo()
+    const id = setInterval(fetchInfo, 5000)
+    return () => clearInterval(id)
+  }, [isElectron])
 
   useEffect(() => {
     if (isElectron) {
@@ -395,9 +570,7 @@ function App() {
   const badge = bufferBadge()
 
   const handleClose = () => {
-    if (isElectron && window.electronAPI?.closeWindow) {
-      window.electronAPI.closeWindow()
-    }
+    if (isElectron && window.electronAPI?.closeWindow) window.electronAPI.closeWindow()
   }
 
   // ── デバイス選択画面 ──────────────────────────────────
@@ -547,25 +720,6 @@ function App() {
                 </div>
               </div>
 
-              {!peerId && !isCallActive && (
-                <div style={S.sec}>
-                  <div style={S.secLabel}>HOW TO SESSION</div>
-                  <div style={S.card}>
-                    {[
-                      ['① URLを共有', 'このアプリのURLを相手に送る'],
-                      ['② 相手が接続', '相手が同じURLを開いて待機'],
-                      ['③ CALL を押す', '相手が見つかったら発信する'],
-                      ['④ 一緒に弾く', '最低遅延でリアルタイムセッション'],
-                    ].map(([label, val], i, arr) => (
-                      <div key={label} style={i === arr.length - 1 ? S.rowLast : S.row}>
-                        <div style={S.rl}>{label}</div>
-                        <span style={S.rv}>{val}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {error && <div style={{ fontSize: '12px', color: '#e84040', marginBottom: '16px' }}>{error}</div>}
 
               {peerId && !isCallActive && (
@@ -617,6 +771,27 @@ function App() {
                       ASIOチャンク間隔：<span style={{ color: ipcLatency < 15 ? '#3ecf8e' : '#e8a23a' }}>約{ipcLatency}ms</span>
                     </div>
                   )}
+                </div>
+              )}
+
+              <QualityMonitor rtt={latestRtt} useNative={useNative} systemInfo={systemInfo} />
+
+              {!peerId && !isCallActive && (
+                <div style={S.sec}>
+                  <div style={S.secLabel}>HOW TO SESSION</div>
+                  <div style={S.card}>
+                    {[
+                      ['① URLを共有', 'このアプリのURLを相手に送る'],
+                      ['② 相手が接続', '相手が同じURLを開いて待機'],
+                      ['③ CALL を押す', '相手が見つかったら発信する'],
+                      ['④ 一緒に弾く', '最低遅延でリアルタイムセッション'],
+                    ].map(([label, val], i, arr) => (
+                      <div key={label} style={i === arr.length - 1 ? S.rowLast : S.row}>
+                        <div style={S.rl}>{label}</div>
+                        <span style={S.rv}>{val}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </>
