@@ -38,43 +38,63 @@ ipcMain.handle('close-window', () => {
 
 ipcMain.handle('get-system-info', () => {
   try {
-    // CPU使用率（前後100msで計測）
     const cpuStart = process.cpuUsage()
     const start = Date.now()
     while (Date.now() - start < 100) {}
     const cpuEnd = process.cpuUsage(cpuStart)
-    const cpuPercent = Math.round((cpuEnd.user + cpuEnd.system) / 1000 / 100)
+    const cpuPercent = Math.min(Math.round((cpuEnd.user + cpuEnd.system) / 1000 / 100), 100)
 
-    // メモリ
     const totalMem = os.totalmem()
     const freeMem = os.freemem()
-    const freeMemGB = (freeMem / 1024 / 1024 / 1024).toFixed(1)
 
-    // ネットワーク（有線/WiFi判別）
+    // ネットワーク判別
     const nets = os.networkInterfaces()
-    let isWired = false
-    let isWifi = false
+    let connectionType = 'unknown' // wired / wifi / tethering / vpn / virtual / unknown
+
     for (const name of Object.keys(nets)) {
       const lower = name.toLowerCase()
-      if (lower.includes('ethernet') || lower.includes('eth') || lower.includes('local area')) {
-        isWired = true
-      }
-      if (lower.includes('wi-fi') || lower.includes('wireless') || lower.includes('wlan')) {
-        isWifi = true
+      const iface = nets[name]
+      const hasAddr = iface && iface.some(i => !i.internal && i.family === 'IPv4')
+      if (!hasAddr) continue
+
+      if (
+        lower.includes('wi-fi') || lower.includes('wifi') ||
+        lower.includes('wireless') || lower.includes('wlan') || lower.includes('無線')
+      ) {
+        if (connectionType === 'unknown') connectionType = 'wifi'
+      } else if (
+        lower.includes('tun') || lower.includes('tap') ||
+        lower.includes('vpn') || lower.includes('nordvpn') ||
+        lower.includes('expressvpn')
+      ) {
+        if (connectionType === 'unknown') connectionType = 'vpn'
+      } else if (
+        lower.includes('vmware') || lower.includes('virtualbox') ||
+        lower.includes('hyper-v') || lower.includes('vethernet') ||
+        lower.includes('docker')
+      ) {
+        if (connectionType === 'unknown') connectionType = 'virtual'
+      } else if (
+        lower.includes('rndis') || lower.includes('mobile') ||
+        lower.includes('bluetooth') || lower.includes('bt')
+      ) {
+        if (connectionType === 'unknown') connectionType = 'tethering'
+      } else {
+        // WiFi・VPN・仮想・テザリング以外 → 有線とみなす
+        connectionType = 'wired'
       }
     }
 
     return {
-      cpuPercent: Math.min(cpuPercent, 100),
-      freeMemGB,
+      cpuPercent,
+      freeMemGB: (freeMem / 1024 / 1024 / 1024).toFixed(1),
       totalMemGB: (totalMem / 1024 / 1024 / 1024).toFixed(1),
-      isWired,
-      isWifi,
+      connectionType,
       platform: os.platform(),
       release: os.release(),
     }
   } catch (err) {
-    return { cpuPercent: 0, freeMemGB: '0', totalMemGB: '0', isWired: false, isWifi: false }
+    return { cpuPercent: 0, freeMemGB: '0', totalMemGB: '0', connectionType: 'unknown' }
   }
 })
 
@@ -122,7 +142,6 @@ ipcMain.handle('start-audio', (event, deviceInfo) => {
     )
     rtAudio.start()
     isStreaming = true
-    console.log(`録音開始 deviceId:${id} type:${type} sampleRate:${sampleRate} bufferSize:${bufferSize}`)
   } catch (err) {
     console.error('start-audio失敗:', err)
     throw err
