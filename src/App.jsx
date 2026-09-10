@@ -63,6 +63,26 @@ const S = {
   sec: { marginBottom: '28px' },
 }
 
+// 接続タイプの日本語表示
+const CONNECTION_LABEL = {
+  wired: '有線LAN',
+  wifi: 'WiFi',
+  tethering: 'テザリング',
+  vpn: 'VPN',
+  virtual: '仮想/不明',
+  unknown: '不明',
+}
+
+// 接続タイプごとのアドバイス
+const CONNECTION_ADVICE = {
+  wired: { type: 'ok', text: '有線LAN接続を確認しました。' },
+  wifi: { type: 'warn', text: '有線LANに切り替えると遅延が改善する場合があります。' },
+  tethering: { type: 'warn', text: 'テザリング接続を確認しました。遅延が大きくなる場合があります。' },
+  vpn: { type: 'warn', text: 'VPN経由の接続を確認しました。遅延に影響する場合があります。' },
+  virtual: { type: 'warn', text: '仮想ネットワーク経由の接続を確認しました。' },
+  unknown: { type: 'warn', text: '接続方式を確認できませんでした。' },
+}
+
 function Toggle({ checked, onChange }) {
   return (
     <label style={{ position: 'relative', width: '42px', height: '24px', flexShrink: 0, display: 'block' }}>
@@ -98,28 +118,20 @@ function Meter({ bars }) {
   )
 }
 
-// QUALITYモニターのドット
 function QDot({ color }) {
   const colors = { green: '#3ecf8e', yellow: '#e8a23a', red: '#e84040' }
   return <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: colors[color] || '#333', flexShrink: 0 }} />
 }
 
-// QUALITYモニター
 function QualityMonitor({ rtt, useNative, systemInfo }) {
   const [open, setOpen] = useState(null)
 
-  const netScore = () => {
-    if (!rtt) return 'yellow'
-    if (rtt < 30 && systemInfo?.isWired) return 'green'
-    if (rtt < 80) return 'yellow'
-    return 'red'
-  }
+  const connType = systemInfo?.connectionType || 'unknown'
+  const connLabel = CONNECTION_LABEL[connType]
+  const advice = CONNECTION_ADVICE[connType]
 
-  const audScore = () => {
-    if (useNative) return 'green'
-    return 'red'
-  }
-
+  const netScore = () => 'yellow' // 色は固定
+  const audScore = () => useNative ? 'green' : 'red'
   const pcScore = () => {
     if (!systemInfo) return 'yellow'
     if (systemInfo.cpuPercent < 50) return 'green'
@@ -128,9 +140,9 @@ function QualityMonitor({ rtt, useNative, systemInfo }) {
   }
 
   const scores = [
-    { id: 'net', label: 'NET', color: netScore() },
-    { id: 'aud', label: 'AUDIO', color: audScore() },
-    { id: 'pc', label: 'PC', color: pcScore() },
+    { id: 'net', label: 'NET', sub: connLabel, color: netScore() },
+    { id: 'aud', label: 'AUDIO', sub: useNative ? 'ASIO' : 'WDM', color: audScore() },
+    { id: 'pc', label: 'PC', sub: systemInfo ? `CPU ${systemInfo.cpuPercent}%` : '...', color: pcScore() },
   ]
 
   const toggle = (id) => setOpen(open === id ? null : id)
@@ -151,16 +163,18 @@ function QualityMonitor({ rtt, useNative, systemInfo }) {
           <div key={s.id} onClick={() => toggle(s.id)} style={{
             flex: 1, background: open === s.id ? '#1a1a1a' : '#111',
             border: '0.5px solid ' + (open === s.id ? '#e84040' : '#1e1e1e'),
-            borderRadius: '12px', padding: '18px 12px', textAlign: 'center', cursor: 'pointer',
+            borderRadius: '12px', padding: '16px 12px', textAlign: 'center', cursor: 'pointer',
           }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
               <QDot color={s.color} />
             </div>
-            <div style={{ fontSize: '10px', color: '#555', letterSpacing: '1.5px' }}>{s.label}</div>
+            <div style={{ fontSize: '10px', color: '#666', letterSpacing: '1.5px', marginBottom: '4px' }}>{s.label}</div>
+            <div style={{ fontSize: '10px', color: '#aaa' }}>{s.sub}</div>
           </div>
         ))}
       </div>
 
+      {/* NET詳細 */}
       {open === 'net' && (
         <div style={{ background: '#111', border: '0.5px solid #1e1e1e', borderRadius: '12px', padding: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px' }}>
@@ -168,28 +182,18 @@ function QualityMonitor({ rtt, useNative, systemInfo }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 500, color: '#fff' }}>
                 <QDot color={netScore()} /> ネットワーク
               </div>
-              <div style={{ fontSize: '11px', color: '#666', marginTop: '3px' }}>
-                {systemInfo?.isWired ? '有線LAN接続' : systemInfo?.isWifi ? 'WiFi接続を検出' : '接続方式不明'}
-              </div>
+              <div style={{ fontSize: '11px', color: '#666', marginTop: '3px' }}>{connLabel}</div>
             </div>
             <div style={{ cursor: 'pointer', color: '#555', fontSize: '18px' }} onClick={() => setOpen(null)}>✕</div>
           </div>
-          {!systemInfo?.isWired && (
-            <div style={tipStyle('warn')}>
-              有線LANに切り替えると遅延が約20〜30ms改善します
-            </div>
-          )}
-          {systemInfo?.isWired && (
-            <div style={tipStyle('ok')}>
-              有線LAN接続です。ネットワーク環境は良好です
-            </div>
-          )}
-          <div style={S.row}><span style={S.rl}>接続方式</span><span style={S.rv}>{systemInfo?.isWired ? '有線LAN' : systemInfo?.isWifi ? 'WiFi' : '不明'}</span></div>
+          <div style={tipStyle(advice.type)}>{advice.text}</div>
+          <div style={S.row}><span style={S.rl}>接続方式</span><span style={S.rv}>{connLabel}</span></div>
           <div style={S.row}><span style={S.rl}>RTT（往復遅延）</span><span style={S.rv}>{rtt != null ? rtt + 'ms' : '未計測'}</span></div>
           <div style={S.rowLast}><span style={S.rl}>推定片道遅延</span><span style={S.rv}>{rtt != null ? Math.round(rtt / 2) + 'ms' : '未計測'}</span></div>
         </div>
       )}
 
+      {/* AUDIO詳細 */}
       {open === 'aud' && (
         <div style={{ background: '#111', border: '0.5px solid #1e1e1e', borderRadius: '12px', padding: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px' }}>
@@ -198,7 +202,7 @@ function QualityMonitor({ rtt, useNative, systemInfo }) {
                 <QDot color={audScore()} /> オーディオ
               </div>
               <div style={{ fontSize: '11px', color: '#666', marginTop: '3px' }}>
-                {useNative ? 'ASIO使用中' : '通常マイク（WDM）使用中'}
+                {useNative ? 'ASIOドライバーを確認しました' : '通常マイク（WDM）を確認しました'}
               </div>
             </div>
             <div style={{ cursor: 'pointer', color: '#555', fontSize: '18px' }} onClick={() => setOpen(null)}>✕</div>
@@ -206,23 +210,24 @@ function QualityMonitor({ rtt, useNative, systemInfo }) {
           {!useNative && (
             <>
               <div style={tipStyle('red')}>
-                WDMは遅延が大きくなります。オーディオIFの接続を推奨します
+                WDMは遅延が大きくなる場合があります。オーディオインターフェイスの接続をご検討ください。
               </div>
               <div style={tipStyle('warn')}>
-                おすすめ：ZOOM AMS-22 / Focusrite Scarlett など
+                参考：ZOOM AMS-22 / Focusrite Scarlett など
               </div>
             </>
           )}
           {useNative && (
             <div style={tipStyle('ok')}>
-              ASIOドライバーで動作中です。最低遅延を実現しています
+              ASIOドライバーで動作中です。
             </div>
           )}
           <div style={S.row}><span style={S.rl}>ドライバー</span><span style={S.rv}>{useNative ? 'ASIO' : 'WDM'}</span></div>
-          <div style={S.rowLast}><span style={S.rl}>状態</span><span style={S.rv}>{useNative ? '最適' : '改善推奨'}</span></div>
+          <div style={S.rowLast}><span style={S.rl}>バッファ遅延</span><span style={S.rv}>{useNative ? '低遅延' : '20〜50ms程度'}</span></div>
         </div>
       )}
 
+      {/* PC詳細 */}
       {open === 'pc' && (
         <div style={{ background: '#111', border: '0.5px solid #1e1e1e', borderRadius: '12px', padding: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px' }}>
@@ -236,19 +241,19 @@ function QualityMonitor({ rtt, useNative, systemInfo }) {
             </div>
             <div style={{ cursor: 'pointer', color: '#555', fontSize: '18px' }} onClick={() => setOpen(null)}>✕</div>
           </div>
-          {systemInfo?.cpuPercent < 50 && (
-            <div style={tipStyle('ok')}>
-              CPU・メモリともに問題ありません
+          {systemInfo?.cpuPercent >= 80 && (
+            <div style={tipStyle('red')}>
+              CPU使用率が高くなっています。他のアプリを閉じると改善する場合があります。
             </div>
           )}
           {systemInfo?.cpuPercent >= 50 && systemInfo?.cpuPercent < 80 && (
             <div style={tipStyle('warn')}>
-              CPU使用率が高めです。他のアプリを閉じると改善します
+              CPU使用率がやや高めです。
             </div>
           )}
-          {systemInfo?.cpuPercent >= 80 && (
-            <div style={tipStyle('red')}>
-              CPU使用率が高すぎます。音が途切れる可能性があります
+          {systemInfo?.cpuPercent < 50 && (
+            <div style={tipStyle('ok')}>
+              CPU・メモリに問題は確認されませんでした。
             </div>
           )}
           <div style={S.row}><span style={S.rl}>CPU使用率</span><span style={S.rv}>{systemInfo ? systemInfo.cpuPercent + '%' : '...'}</span></div>
@@ -331,7 +336,6 @@ function App() {
     return () => clearInterval(id)
   }, [])
 
-  // システム情報を定期取得
   useEffect(() => {
     if (!isElectron) return
     const fetchInfo = async () => {
