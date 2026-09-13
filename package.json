@@ -13,16 +13,17 @@
     "preview": "vite preview",
     "dist": "vite build && electron-builder"
   },
-"build": {
-  "appId": "com.oto.app",
-  "productName": "ミュージックミュージック",
-  "icon": "oto.ico",
-  "files": [
-    "dist/**/*",
-    "electron.cjs",
-    "preload.cjs",
-    "node_modules/**/*"
-  ],,
+  "build": {
+    "appId": "com.oto.app",
+    "productName": "ミュージックミュージック",
+    "icon": "oto.ico",
+    "files": [
+      "dist/**/*",
+      "electron.cjs",
+      "preload.cjs",
+      "node_modules/**/*",
+      "oto.ico"
+    ],
     "extraResources": [
       {
         "from": "public",
@@ -31,7 +32,8 @@
       }
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "oto.ico"
     },
     "nsis": {
       "oneClick": false,
